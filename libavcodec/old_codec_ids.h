@@ -213,6 +213,7 @@
     CODEC_ID_SANM       = MKBETAG('S','A','N','M'),
     CODEC_ID_PAF_VIDEO  = MKBETAG('P','A','F','V'),
     CODEC_ID_SNOW       = AV_CODEC_ID_SNOW,
+    CODEC_ID_H265       = AV_CODEC_ID_H265,
 
     /* various PCM "codecs" */
     CODEC_ID_FIRST_AUDIO = 0x10000,     ///< A dummy id pointing at the start of audio codecs

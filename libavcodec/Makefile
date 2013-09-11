@@ -233,6 +233,7 @@ OBJS-$(CONFIG_H264_DECODER)            += h264.o                               \
                                           cabac.o h264_sei.o h264_ps.o         \
                                           h264_refs.o h264_cavlc.o h264_cabac.o
 OBJS-$(CONFIG_H264_VDA_DECODER)        += vda_h264_dec.o
+OBJS-$(CONFIG_LIBDE265_DECODER)        += libde265.o
 OBJS-$(CONFIG_HUFFYUV_DECODER)         += huffyuv.o huffyuvdec.o
 OBJS-$(CONFIG_HUFFYUV_ENCODER)         += huffyuv.o huffyuvenc.o
 OBJS-$(CONFIG_IAC_DECODER)             += imc.o

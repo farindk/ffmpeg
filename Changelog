@@ -18,6 +18,7 @@ version <next>
 - DVB teletext decoder
 - phase filter ported from libmpcodecs
 - w3fdif filter
+- H.265 decoding via libde265
 
 
 version 2.0:
