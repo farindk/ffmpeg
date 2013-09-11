@@ -174,7 +174,7 @@ static const AVFilterPad avfilter_vf_nlm_outputs[] = {
 };
 
 AVFilter avfilter_vf_nlmeans = {
-    .name          = "NLMeans",
+    .name          = "nlmeans",
     .description   = NULL_IF_CONFIG_SMALL("Apply a Non-Local Means filter."),
 
     .priv_size     = sizeof(NLMContext),
