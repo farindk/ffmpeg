@@ -79,9 +79,9 @@ typedef struct
 } ColorImage;
 
 
-static void alloc_and_copy_image_with_border(MonoImage* ext_img, const uint8_t* img, int stride, int w,int h, int border)
+static void alloc_and_copy_image_with_border(MonoImage* ext_img, const uint8_t* img, int stride, int w,int h, int in_border)
 {
-    border = (border+15)/16*16;
+    int border = (in_border+15)/16*16;
 
     int inStride = (w+2*border);
     int inTotalHeight = (h+2*border);
@@ -156,30 +156,11 @@ typedef struct {
     int        image_available[MAX_NLMeansImages];
 
     void (*buildIntegralImage)(uint32_t* integral,   int integral_stride32,
+                               const uint8_t* currimage, int currstride,
                                const uint8_t* image, int stride,
                                int  w,int  h,
                                int dx,int dy);
 } NLMContext;
-
-
-
-/*
-void NLMeans_mono_multi(uint8_t* out, int outStride,
-			const DN_MonoImage*const * images, int nImages,
-			const DN_NLMeansParams* param);
-
-void NLMeans_mono_single(uint8_t* out, int outStride,
-			 const uint8_t* in, int inStride,
-			 int w, int h, int border,
-			 const DN_NLMeansParams* param);
-
-void NLMeans_color_auto(uint8_t** out, int* outStride,
-			const DN_ColorImage* img, // function takes ownership
-			DN_NLMeansContext* ctx);
-
-void NLMeans_init_context(DN_NLMeansContext* ctx);
-void NLMeans_free_context(DN_NLMeansContext* ctx);
-*/
 
 
 
@@ -202,14 +183,16 @@ static void buildIntegralImage_scalar(uint32_t* integral,   int integral_stride3
         {
             int diff = *p1++ - *p2++;
             diff= 0xFF;
-            *out++ = *(out-1) + diff * diff;
+            *out = *(out-1) + diff * diff;
+            out++;
         }
 
         if (y>0) {
-            out = integral[y];
+            out = integral+y*integral_stride32;
 
             for (int x=0;x<w;x++) {
-                *out++ += *(out-integral_stride32);
+                *out += *(out-integral_stride32);
+                out++;
             }
         }
     }
@@ -231,43 +214,55 @@ static void buildIntegralImage_SSE(uint32_t* integral, int integral_stride32,
 				   int  w,int  h,
 				   int dx,int dy)
 {
-    memset(integral-1-integral_stride32, 0, (w+1)*sizeof(uint32_t));
-
     const __m128i zero = _mm_set1_epi8(0);
+
+    memset(integral-1-integral_stride32, 0, (w+1)*sizeof(uint32_t));
 
     for (int y=0;y<h;y++) {
         const uint8_t* p1 = currimage+y*currstride;
         const uint8_t* p2 = image+(y+dy)*stride+dx;
+
         uint32_t* out = integral+y*integral_stride32-1;
 
-        *out++ = 0;
         __m128i prevadd = _mm_set1_epi32(0);
-
         const int nPix = 16;
+
+        *out++ = 0;
 
         for (int x=0;x<w;x+=nPix)
         {
-            __m128i pa = _mm_loadu_si128((__m128i*)p1);
-            __m128i pb = _mm_loadu_si128((__m128i*)p2);
+            __m128i pa, pb;
+            __m128i pla, plb;
+            __m128i ldiff, lldiff, lhdiff;
+            __m128i ltmp,htmp;
+            __m128i ladd,hadd;
+            __m128i pha,phb;
+            __m128i hdiff,hldiff,hhdiff;
+            __m128i l2tmp,h2tmp;
 
-            __m128i pla = _mm_unpacklo_epi8(pa,zero);
-            __m128i plb = _mm_unpacklo_epi8(pb,zero);
 
-            __m128i ldiff = _mm_sub_epi16(pla,plb);
+
+            pa = _mm_loadu_si128((__m128i*)p1);
+            pb = _mm_loadu_si128((__m128i*)p2);
+
+            pla = _mm_unpacklo_epi8(pa,zero);
+            plb = _mm_unpacklo_epi8(pb,zero);
+
+            ldiff = _mm_sub_epi16(pla,plb);
             ldiff = _mm_mullo_epi16(ldiff,ldiff);
 
-            __m128i lldiff = _mm_unpacklo_epi16(ldiff,zero);
-            __m128i lhdiff = _mm_unpackhi_epi16(ldiff,zero);
+            lldiff = _mm_unpacklo_epi16(ldiff,zero);
+            lhdiff = _mm_unpackhi_epi16(ldiff,zero);
 
-            __m128i ltmp = _mm_slli_si128(lldiff, 4);
+            ltmp = _mm_slli_si128(lldiff, 4);
             lldiff = _mm_add_epi32(lldiff, ltmp);
             ltmp = _mm_slli_si128(lldiff, 8);
             lldiff = _mm_add_epi32(lldiff, ltmp);
             lldiff = _mm_add_epi32(lldiff, prevadd);
 
-            __m128i ladd = _mm_shuffle_epi32(lldiff, 0xff);
+            ladd = _mm_shuffle_epi32(lldiff, 0xff);
 
-            __m128i htmp = _mm_slli_si128(lhdiff, 4);
+            htmp = _mm_slli_si128(lhdiff, 4);
             lhdiff = _mm_add_epi32(lhdiff, htmp);
             htmp = _mm_slli_si128(lhdiff, 8);
             lhdiff = _mm_add_epi32(lhdiff, htmp);
@@ -280,21 +275,21 @@ static void buildIntegralImage_SSE(uint32_t* integral, int integral_stride32,
 
 
 
-            __m128i pha = _mm_unpackhi_epi8(pa,zero);
-            __m128i phb = _mm_unpackhi_epi8(pb,zero);
-            __m128i hdiff = _mm_sub_epi16(pha,phb);
+            pha = _mm_unpackhi_epi8(pa,zero);
+            phb = _mm_unpackhi_epi8(pb,zero);
+            hdiff = _mm_sub_epi16(pha,phb);
 
             hdiff = _mm_mullo_epi16(hdiff,hdiff);
 
-            __m128i hldiff = _mm_unpacklo_epi16(hdiff,zero);
-            __m128i hhdiff = _mm_unpackhi_epi16(hdiff,zero);
-            __m128i l2tmp = _mm_slli_si128(hldiff, 4);
+            hldiff = _mm_unpacklo_epi16(hdiff,zero);
+            hhdiff = _mm_unpackhi_epi16(hdiff,zero);
+            l2tmp = _mm_slli_si128(hldiff, 4);
             hldiff = _mm_add_epi32(hldiff, l2tmp);
             l2tmp = _mm_slli_si128(hldiff, 8);
             hldiff = _mm_add_epi32(hldiff, l2tmp);
             hldiff = _mm_add_epi32(hldiff, prevadd);
-            __m128i hadd = _mm_shuffle_epi32(hldiff, 0xff);
-            __m128i h2tmp = _mm_slli_si128(hhdiff, 4);
+            hadd = _mm_shuffle_epi32(hldiff, 0xff);
+            h2tmp = _mm_slli_si128(hhdiff, 4);
             hhdiff = _mm_add_epi32(hhdiff, h2tmp);
             h2tmp = _mm_slli_si128(hhdiff, 8);
             hhdiff = _mm_add_epi32(hhdiff, h2tmp);
@@ -341,26 +336,6 @@ struct PixelSum
 };
 
 
-/*
-void NLMeans_mono_single(uint8_t* out, int outStride,
-			 const uint8_t* in, int origInStride,
-			 int w, int h, int border,
-			 const DN_NLMeansParams* param)
-{
-  DN_MonoImage img;
-  img.img = in;
-  img.stride = origInStride;
-  img.w = w;
-  img.h = h;
-  img.border = border;
-
-  NLMeans_mono_multi(out,outStride,&img,1,param);
-}
-*/
-
-static int cnt=0;
-static int ch;
-
 
 static void NLMeans_mono_multi(uint8_t* out, int outStride,
 			       const MonoImage*const* images, int nImages,
@@ -377,6 +352,10 @@ static void NLMeans_mono_multi(uint8_t* out, int outStride,
 
     struct PixelSum* tmp_data = (struct PixelSum*)calloc(w*h,sizeof(struct PixelSum));
 
+    int integral_stride32 = w+2*16;
+    uint32_t* integral_mem = (uint32_t*)malloc( integral_stride32*(h+1)*sizeof(uint32_t) );
+    uint32_t* integral = integral_mem + integral_stride32 + 16;
+
 
     float weightFact = 1.0/n/n / (param->h_param * param->h_param);
 
@@ -385,19 +364,14 @@ static void NLMeans_mono_multi(uint8_t* out, int outStride,
     const int tabSize=TABSIZE;
     float exptab[TABSIZE];
 
-    //const float stretch=10;
     const float stretch = tabSize/ (-log(0.0005));
+    float weightFactTab = weightFact*stretch;
+    int diff_max = tabSize/weightFactTab;
 
     for (int i=0;i<tabSize;i++)
         exptab[i] = exp(-i/stretch);
     exptab[tabSize-1]=0;
 
-    float weightFactTab = weightFact*stretch;
-    int diff_max = tabSize/weightFactTab;
-
-    int integral_stride32 = w+2*16;
-    uint32_t* integral_mem = (uint32_t*)malloc( integral_stride32*(h+1)*sizeof(uint32_t) );
-    uint32_t* integral = integral_mem + integral_stride32 + 16;
 
 
     for (int imageIdx=0; imageIdx<nImages; imageIdx++)
@@ -445,35 +419,17 @@ static void NLMeans_mono_multi(uint8_t* out, int outStride,
                         const int xc = x+n2;
                         const int yc = y+n2;
 
-                        // fast exp, see here: http://gruntthepeon.free.fr/ssemath/
-
                         int diff = (uint32_t)(iPtr2[n] - iPtr2[0] - iPtr1[n] + iPtr1[0]);
-
-                        //int diffidx = diff*weightFactTab;
-                        //if (diffidx<tabSize) {
-
-                        float weight2;
 
                         if (diff<diff_max) {
                             int diffidx = diff*weightFactTab;
 
                             //float weight = exp(-diff*weightFact);
-                            weight2 = exptab[diffidx];
-                            //float weight3 = 1/(1+diff*diff*weightFact*weightFact);
+                            float weight = exptab[diffidx];
 
-                            tmp_data[yc*w+xc].weightSum += weight2;
-                            tmp_data[yc*w+xc].pixelSum  += weight2 * inWithBorderP[(yc+dy)*inStride+xc+dx];
+                            tmp_data[yc*w+xc].weightSum += weight;
+                            tmp_data[yc*w+xc].pixelSum  += weight * inWithBorderP[(yc+dy)*inStride+xc+dx];
                         }
-
-                        /*
-                          else {
-                          weight2 = 0;
-                          }
-
-                          if (cnt==14 && xc==296/ch && yc==200/ch) {
-                          printf("%d %d %d - %d %f - %d\n",imageIdx, dx,dy, diff, weight2, inWithBorderP[(yc+dy)*inStride+xc+dx]);
-                          }
-                        */
 
                         iPtr1++;
                         iPtr2++;
@@ -488,48 +444,28 @@ static void NLMeans_mono_multi(uint8_t* out, int outStride,
 
     // copy border area
 
-    const uint8_t* in = images[0]->img;
-    int origInStride  = images[0]->stride;
+    {
+        const uint8_t* in = images[0]->img;
+        int origInStride  = images[0]->stride;
 
-    for (int y=0;   y<n2;y++) { memcpy(out+y*outStride, in+y*origInStride, w); }
-    for (int y=h-n2;y<h ;y++) { memcpy(out+y*outStride, in+y*origInStride, w); }
-    for (int y=n2;y<h-n2;y++) {
-        memcpy(out+y*outStride,      in+y*origInStride,      n2);
-        memcpy(out+y*outStride+w-n2, in+y*origInStride+w-n2, n2);
+        for (int y=0;   y<n2;y++) { memcpy(out+y*outStride, in+y*origInStride, w); }
+        for (int y=h-n2;y<h ;y++) { memcpy(out+y*outStride, in+y*origInStride, w); }
+        for (int y=n2;y<h-n2;y++) {
+            memcpy(out+y*outStride,      in+y*origInStride,      n2);
+            memcpy(out+y*outStride+w-n2, in+y*origInStride+w-n2, n2);
+        }
     }
-
 
     // output main image
 
     for (int y=n2;y<h-n2;y++) {
         for (int x=n2;x<w-n2;x++) {
             *(out+y*outStride+x) = tmp_data[y*w+x].pixelSum / tmp_data[y*w+x].weightSum;
-            /*
-              if (cnt==14 && x==296/ch && y==200/ch) {
-              printf("out: %d (%d)\n", *(out+y*outStride+x), *(in+y*origInStride+x));
-              }
-            */
         }
     }
 
-    //free(inputWithBorder);
     free(tmp_data);
     free(integral_mem);
-
-    /*
-      if (cnt==14) {
-      static FILE* fh = NULL;
-      if (fh==NULL) fh = fopen("dump.yuv","wb");
-      for (int y=0;y<h;y++)
-      fwrite(out+y*outStride, w,1, fh);
-
-
-      static FILE* fh1 = NULL;
-      if (fh1==NULL) fh1 = fopen("in.yuv","wb");
-      for (int y=0;y<h;y++)
-      fwrite(in+y*origInStride, w,1, fh1);
-      }
-    */
 }
 
 
@@ -537,8 +473,6 @@ static void NLMeans_color_auto(uint8_t** out, int* outStride,
 			       const ColorImage* img, // function takes ownership
 			       NLMContext* ctx)
 {
-    cnt++;
-
     assert(ctx->param.n_frames >= 1);
     assert(ctx->param.n_frames <= DN_MAX_NLMeansImages);
 
@@ -562,8 +496,6 @@ static void NLMeans_color_auto(uint8_t** out, int* outStride,
     for (int c=0;c<3;c++)
         if (ctx->images[0].plane[c].img != NULL)
         {
-            ch= (c==0 ? 1 : 2);
-
             const MonoImage* images[MAX_NLMeansImages];
             int i;
             for (i=0; ctx->image_available[i]; i++) {
@@ -651,6 +583,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     NLMContext *nlm = inlink->dst->priv;
     AVFilterLink *outlink = inlink->dst->outputs[0];
 
+    ColorImage borderedImg;
+
     AVFrame *out;
     int direct, c;
 
@@ -667,8 +601,6 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
         av_frame_copy_props(out, in);
     }
-
-    ColorImage borderedImg;
 
     for (c = 0; c < 3; c++) {
         int w = FF_CEIL_RSHIFT(in->width,  (!!c * nlm->hsub));
