@@ -145,8 +145,11 @@ typedef struct
 
 #define MAX_NLMeansImages 32
 
-typedef struct
-{
+typedef struct {
+    const AVClass *class;
+
+    int hsub,vsub;
+
     NLMeansParams param;
 
     ColorImage images[MAX_NLMeansImages];
@@ -156,7 +159,8 @@ typedef struct
                                const uint8_t* image, int stride,
                                int  w,int  h,
                                int dx,int dy);
-} NLMeansContext;
+} NLMContext;
+
 
 
 /*
@@ -531,7 +535,7 @@ static void NLMeans_mono_multi(uint8_t* out, int outStride,
 
 static void NLMeans_color_auto(uint8_t** out, int* outStride,
 			       const ColorImage* img, // function takes ownership
-			       NLMeansContext* ctx)
+			       NLMContext* ctx)
 {
     cnt++;
 
@@ -573,45 +577,7 @@ static void NLMeans_color_auto(uint8_t** out, int* outStride,
 
 
 
-static void NLMeans_init_context(NLMeansContext* ctx)
-{
-    for (int i=0;i<MAX_NLMeansImages;i++) {
-        ctx->image_available[i] = 0;
-    }
 
-
-    // TODO: choose computation function based on CPU capabilities
-
-    ctx->buildIntegralImage = buildIntegralImage_SSE;
-    // buildIntegralImage_scalar // fallback
-}
-
-
-static void NLMeans_free_context(NLMeansContext* ctx)
-{
-  for (int i=0;i<MAX_NLMeansImages;i++) {
-    if (ctx->image_available[i]) {
-      free_color_image(&(ctx->images[i]));
-
-      ctx->image_available[i] = 0;
-    }
-  }
-}
-
-
-
-
-
-
-
-typedef struct {
-    const AVClass *class;
-
-    int hsub,vsub;
-
-    NLMeansContext context;
-
-} NLMContext;
 
 
 
@@ -619,7 +585,16 @@ static av_cold int init(AVFilterContext *ctx)
 {
     NLMContext *nlm = ctx->priv;
 
-    NLMeans_init_context(&nlm->context);
+    for (int i=0;i<MAX_NLMeansImages;i++) {
+        nlm->image_available[i] = 0;
+    }
+
+
+    // TODO: choose computation function based on CPU capabilities
+
+    nlm->buildIntegralImage = buildIntegralImage_SSE;
+    // buildIntegralImage_scalar // fallback
+
 
     return 0;
 }
@@ -628,7 +603,13 @@ static av_cold void uninit(AVFilterContext *ctx)
 {
     NLMContext *nlm = ctx->priv;
 
-    NLMeans_free_context(&nlm->context);
+    for (int i=0;i<MAX_NLMeansImages;i++) {
+        if (nlm->image_available[i]) {
+            free_color_image(&(nlm->images[i]));
+
+            nlm->image_available[i] = 0;
+        }
+    }
 }
 
 static int query_formats(AVFilterContext *ctx)
@@ -692,7 +673,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     for (c = 0; c < 3; c++) {
         int w = FF_CEIL_RSHIFT(in->width,  (!!c * nlm->hsub));
         int h = FF_CEIL_RSHIFT(in->height, (!!c * nlm->vsub));
-        int border = nlm->context.param.range/2;
+        int border = nlm->param.range/2;
 
         alloc_and_copy_image_with_border(&borderedImg.plane[c],
                                          in->data[c], in->linesize[c],
@@ -701,7 +682,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
     NLMeans_color_auto(out->data, out->linesize,
 		       &borderedImg,
-		       &nlm->context);
+		       nlm);
 
 
     if (!direct)
@@ -713,10 +694,10 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 #define OFFSET(x) offsetof(NLMContext, x)
 #define FLAGS AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_FILTERING_PARAM
 static const AVOption options[] = {
-    { "h",           "averaging weight decay parameter",  OFFSET(context.param.h_param), AV_OPT_TYPE_DOUBLE, { .dbl = 10.0 }, 0.1, 100.0, FLAGS },
-    { "patchsize",   "patch width/height",        OFFSET(context.param.patch_size), AV_OPT_TYPE_INT,    { .i64 =  7   },   3, 255,   FLAGS },
-    { "range",       "search range",            OFFSET(context.param.range), AV_OPT_TYPE_INT,    { .i64 = 21   },   3, 255,   FLAGS },
-    { "temporal",    "temporal search range",            OFFSET(context.param.n_frames), AV_OPT_TYPE_INT,    { .i64 = 1   },   1, MAX_NLMeansImages,   FLAGS },
+    { "h",           "averaging weight decay parameter", OFFSET(param.h_param),    AV_OPT_TYPE_DOUBLE, { .dbl = 8.0 }, 0.1, 100.0, FLAGS },
+    { "patchsize",   "patch width/height",               OFFSET(param.patch_size), AV_OPT_TYPE_INT,    { .i64 = 7   },   3, 255,   FLAGS },
+    { "range",       "search range",                     OFFSET(param.range),      AV_OPT_TYPE_INT,    { .i64 = 3   },   3, 255,   FLAGS },
+    { "temporal",    "temporal search range",            OFFSET(param.n_frames),   AV_OPT_TYPE_INT,    { .i64 = 2   },   1, MAX_NLMeansImages,   FLAGS },
     { NULL },
 };
 
