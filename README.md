@@ -1,5 +1,5 @@
 
-personal FFMPEG fork
+Personal FFMPEG fork
 ====================
 
 This fork contains the following extensions to ffmpeg (each in its own branch):  
@@ -17,9 +17,9 @@ nlmeans
 -------
 Parameters:
 * h - averaging weight decay parameter (larger values give smoother videos)
-* range - spatial search range (default=3)
+* range - spatial search range (default=3), should be odd number.
 * temporal - number of frames to include into search (default=2)
-* patchsize - pixel context region width (default=7, little need to change)
+* patchsize - pixel context region width (default=7, little need to change), should be odd number.
 
 The defaults (h=8, range=3, temporal=2) is a good starting point for the
 restoration of very noisy video (old VHS tapes). You may also try 10/5/3
