@@ -41,6 +41,8 @@
 #include "internal.h"
 #include "video.h"
 #include "libavutil/opt.h"
+#include "libavutil/intreadwrite.h"
+#include "libavutil/imgutils.h"
 
 
 
@@ -57,14 +59,14 @@ typedef struct {
 
 static av_cold int init(AVFilterContext *ctx)
 {
-    FieldShiftContext *fieldshift = ctx->priv;
+    //FieldShiftContext *fieldshift = ctx->priv;
 
     return 0;
 }
 
 static av_cold void uninit(AVFilterContext *ctx)
 {
-    FieldShiftContext *fieldshift = ctx->priv;
+    //FieldShiftContext *fieldshift = ctx->priv;
 }
 
 static int query_formats(AVFilterContext *ctx)
@@ -88,11 +90,13 @@ static int query_formats(AVFilterContext *ctx)
 static int config_input(AVFilterLink *inlink)
 {
     FieldShiftContext *fieldshift = inlink->dst->priv;
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(inlink->format);
+    const AVPixFmtDescriptor *pix_desc = av_pix_fmt_desc_get(inlink->format);
 
-    av_image_fill_max_pixsteps(s->max_step, NULL, pix_desc);
-    fieldshift->hsub  = desc->log2_chroma_w;
-    fieldshift->vsub  = desc->log2_chroma_h;
+    av_image_fill_max_pixsteps(fieldshift->max_step, NULL, pix_desc);
+    fieldshift->hsub  = pix_desc->log2_chroma_w;
+    fieldshift->vsub  = pix_desc->log2_chroma_h;
+
+    //printf("hsub %d %d\n",fieldshift->hsub,fieldshift->vsub);
 
     return 0;
 }
@@ -103,10 +107,9 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     AVFilterLink *outlink = inlink->dst->outputs[0];
 
     AVFrame *out;
+    uint8_t *inrow, *outrow;
 
     int i, j, plane, step;
-    int shift_right = fieldshift->shift_amount/2;
-    int shift_left  = fieldshift->shift_amount - shift_right;
 
 
     out = ff_get_video_buffer(outlink, outlink->w, outlink->h);
@@ -122,12 +125,28 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
 
     for (plane = 0; plane < 4 && in->data[plane] && in->linesize[plane]; plane++) {
-        const int width  = (plane == 1 || plane == 2) ? FF_CEIL_RSHIFT(inlink->w, s->hsub) : inlink->w;
-        const int height = (plane == 1 || plane == 2) ? FF_CEIL_RSHIFT(inlink->h, s->vsub) : inlink->h;
-        step = s->max_step[plane];
+        const int width  = (plane == 1 || plane == 2) ? FF_CEIL_RSHIFT(inlink->w, fieldshift->hsub) : inlink->w;
+        const int height = (plane == 1 || plane == 2) ? FF_CEIL_RSHIFT(inlink->h, fieldshift->vsub) : inlink->h;
+
+        int plane_shift;
+        int shift_right;
+        int shift_left;
+
+        if ((plane==1 || plane==2) && fieldshift->vsub>0) {
+            plane_shift=0;
+        }
+        else {
+            plane_shift = fieldshift->shift_amount / fieldshift->hsub;
+        }
+        shift_right = plane_shift/2;
+        shift_left  = plane_shift - shift_right;
+
+        step = fieldshift->max_step[plane];
+
+        //printf("step %d \n",step);
 
         outrow = out->data[plane];
-        inrow  = in ->data[plane] + (width - 1) * step;
+        inrow  = in ->data[plane];
         for (i = 0; i < height; i++) {
             int shift = (i&1) ? shift_left : -shift_right;
 
@@ -145,14 +164,25 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
                     for (j = width+shift; j < width; j++)
                         outrow[j] = inrow[width-1];
                 }
-            break;
-/*
+                break;
+
             case 2:
             {
                 uint16_t *outrow16 = (uint16_t *)outrow;
                 uint16_t * inrow16 = (uint16_t *) inrow;
-                for (j = 0; j < width; j++)
-                    outrow16[j] = inrow16[-j];
+
+                if (shift>=0) {
+                    for (j = 0; j < shift; j++)
+                        outrow16[j] = inrow16[0];
+                    for (j = shift; j < width; j++)
+                        outrow16[j] = inrow16[j-shift];
+                }
+                else {
+                    for (j = 0; j < width+shift; j++)
+                        outrow16[j] = inrow16[j-shift];
+                    for (j = width+shift; j < width; j++)
+                        outrow16[j] = inrow16[width-1];
+                }
             }
             break;
 
@@ -160,9 +190,35 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
             {
                 uint8_t *in  =  inrow;
                 uint8_t *out = outrow;
-                for (j = 0; j < width; j++, out += 3, in -= 3) {
+
+                if (shift>=0) {
                     int32_t v = AV_RB24(in);
-                    AV_WB24(out, v);
+
+                    for (j = 0; j < shift; j++, out+=3) {
+                        AV_WB24(out, v);
+                    }
+                    for (j = shift; j < width; j++, out+=3, in+=3) {
+                        v = AV_RB24(in);
+                        AV_WB24(out, v);
+                    }
+                }
+                else {
+                    int32_t v = 0;
+
+                    in -= shift*3;
+
+                    for (j = 0; j < width+shift; j++, out+=3, in+=3)
+                    {
+                        v = AV_RB24(in);
+                        AV_WB24(out, v);
+                        out+=3;
+                    }
+
+                    v = AV_RB24(inrow+3*(width-1));
+
+                    for (j = width+shift; j < width; j++, out+=3) {
+                        AV_WB24(out, v);
+                    }
                 }
             }
             break;
@@ -171,16 +227,38 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
             {
                 uint32_t *outrow32 = (uint32_t *)outrow;
                 uint32_t * inrow32 = (uint32_t *) inrow;
-                for (j = 0; j < width; j++)
-                    outrow32[j] = inrow32[-j];
+
+                if (shift>=0) {
+                    for (j = 0; j < shift; j++)
+                        outrow32[j] = inrow32[0];
+                    for (j = shift; j < width; j++)
+                        outrow32[j] = inrow32[j-shift];
+                }
+                else {
+                    for (j = 0; j < width+shift; j++)
+                        outrow32[j] = inrow32[j-shift];
+                    for (j = width+shift; j < width; j++)
+                        outrow32[j] = inrow32[width-1];
+                }
             }
             break;
 
             default:
-                for (j = 0; j < width; j++)
-                    memcpy(outrow + j*step, inrow - j*step, step);
+                if (shift>=0) {
+                    for (j = 0; j < shift; j++)
+                        memcpy(outrow + j*step, inrow, step);
+                    for (j = shift; j < width; j++)
+                        memcpy(outrow + j*step, inrow + (j-shift)*step, step);
+                }
+                else {
+                    for (j = 0; j < width+shift; j++)
+                        memcpy(outrow + j*step, inrow + (j-shift)*step, step);
+
+                    for (j = width+shift; j < width; j++)
+                        memcpy(outrow + j*step, inrow + (width-1)*step, step);
+                }
+                break;
             }
-*/
 
             inrow  += in ->linesize[plane];
             outrow += out->linesize[plane];
