@@ -56,13 +56,13 @@
 
 typedef struct
 {
-    uint8_t* img;
+    uint8_t* img; // point to logical origin (0;0)
     int stride;
 
     int w,h;
-    int border;
+    int border; // extra border on all four sides
 
-    uint8_t* mem_start;
+    uint8_t* mem_start; // start of allocated memory
 } MonoImage;
 
 
@@ -88,31 +88,38 @@ static void alloc_and_copy_image_with_border(MonoImage* ext_img,
 {
     int border = (in_border+15)/16*16;
 
-    int inStride = (w+2*border);
-    int inTotalHeight = (h+2*border);
-    uint8_t* inputWithBorder = (uint8_t*)malloc(inStride*inTotalHeight);
-    uint8_t* inWithBorderP = inputWithBorder+border+border*inStride;
+    int in_stride = (w+2*border);
+    int in_total_height = (h+2*border);
+    uint8_t* input_with_border = (uint8_t*)malloc(in_stride*in_total_height);
+    uint8_t* in_with_border_ptr = input_with_border+border+border*in_stride;
+
+
+    // copy main image content
 
     for (int y=0;y<h;y++) {
-        memcpy(inWithBorderP+y*inStride, img+y*stride, w);
+        memcpy(in_with_border_ptr+y*in_stride, img+y*stride, w);
     }
 
+    // top/bottom borders
+
     for (int k=0;k<border;k++) {
-        memcpy(inWithBorderP-(k+1)*inStride, img, w);
-        memcpy(inWithBorderP+(h+k)*inStride, img+(h-1)*stride, w);
+        memcpy(in_with_border_ptr-(k+1)*in_stride, img, w);
+        memcpy(in_with_border_ptr+(h+k)*in_stride, img+(h-1)*stride, w);
     }
+
+    // left/right borders
 
     for (int k=0;k<border;k++) {
         for (int y=-border;y<h+border;y++)
         {
-            *(inWithBorderP  -k-1+y*inStride) = inWithBorderP[y*inStride];
-            *(inWithBorderP+w+k  +y*inStride) = inWithBorderP[y*inStride+w-1];
+            *(in_with_border_ptr  -k-1+y*in_stride) = in_with_border_ptr[y*in_stride];
+            *(in_with_border_ptr+w+k  +y*in_stride) = in_with_border_ptr[y*in_stride+w-1];
         }
     }
 
-    ext_img->img = inWithBorderP;
-    ext_img->mem_start = inputWithBorder;
-    ext_img->stride = inStride;
+    ext_img->img = in_with_border_ptr;
+    ext_img->mem_start = input_with_border;
+    ext_img->stride = in_stride;
     ext_img->w = w;
     ext_img->h = h;
     ext_img->border = border;
@@ -142,9 +149,9 @@ static void free_color_image(ColorImage* ext_img)
 typedef struct
 {
     int    patch_size;
-    int    range;
+    int    range;      // search range (must be odd number)
     double h_param;
-    int    n_frames;
+    int    n_frames;   // temporal search depth
 } NLMeansParams;
 
 
@@ -184,7 +191,6 @@ static void buildIntegralImage_scalar(uint32_t* integral,   int integral_stride3
         for (int x=0;x<w;x++)
         {
             int diff = *p1++ - *p2++;
-            diff= 0xFF;
             *out = *(out-1) + diff * diff;
             out++;
         }
@@ -204,14 +210,14 @@ static void buildIntegralImage_scalar(uint32_t* integral,   int integral_stride3
 
 struct PixelSum
 {
-    float weightSum;
-    float pixelSum;
+    float weight_sum;
+    float pixel_sum;
 };
 
 
 
-static void NLMeans_mono_multi(uint8_t* out, int outStride,
-			       const MonoImage*const* images, int nImages,
+static void NLMeans_mono_multi(uint8_t* out, int out_stride,
+			       const MonoImage*const* images, int n_images,
 			       const NLMContext* ctx)
 {
     int w = images[0]->w;
@@ -230,32 +236,33 @@ static void NLMeans_mono_multi(uint8_t* out, int outStride,
     uint32_t* integral = integral_mem + integral_stride32 + 16;
 
 
-    float weightFact = 1.0/n/n / (ctx->param.h_param * ctx->param.h_param);
+    float weight_factor = 1.0/n/n / (ctx->param.h_param * ctx->param.h_param);
 
-#define TABSIZE 128
+#define EXP_TABSIZE 128
 
-    const int tabSize=TABSIZE;
-    float exptab[TABSIZE];
+    const int table_size=EXP_TABSIZE;
+    float exptable[EXP_TABSIZE];
 
-    const float stretch = tabSize/ (-log(0.0005));
-    float weightFactTab = weightFact*stretch;
-    int diff_max = tabSize/weightFactTab;
+    const float min_weight_in_table = 0.0005;
+    const float stretch = table_size/ (-log(min_weight_in_table));
+    float weight_fact_table = weight_factor*stretch;
+    int diff_max = table_size/weight_fact_table;
 
-    for (int i=0;i<tabSize;i++)
-        exptab[i] = exp(-i/stretch);
-    exptab[tabSize-1]=0;
+    for (int i=0;i<table_size;i++)
+        exptable[i] = exp(-i/stretch);
+    exptable[table_size-1]=0;
 
 
 
-    for (int imageIdx=0; imageIdx<nImages; imageIdx++)
+    for (int image_idx=0; image_idx<n_images; image_idx++)
     {
         // copy input image
 
-        const uint8_t* currentWithBorderP = images[0]->img;
-        int currentStride = images[0]->stride;
+        const uint8_t* current_with_border_ptr = images[0]->img;
+        int current_stride = images[0]->stride;
 
-        const uint8_t* inWithBorderP = images[imageIdx]->img;
-        int inStride = images[imageIdx]->stride;
+        const uint8_t* in_with_border_ptr = images[image_idx]->img;
+        int in_stride = images[image_idx]->stride;
 
         // ...
 
@@ -265,6 +272,7 @@ static void NLMeans_mono_multi(uint8_t* out, int outStride,
                 // special case for no shift -> no difference -> weight 1
                 // (but it is not any faster than the full code...)
 
+/*
                 if (dx==0 && dy==0 && imageIdx==0 && 0) {
 #pragma omp parallel for
                     for (int y=n2;y<h-n+n2;y++) {
@@ -276,36 +284,37 @@ static void NLMeans_mono_multi(uint8_t* out, int outStride,
 
                     continue;
                 }
+*/
 
                 ctx->func.buildIntegralImage(integral,integral_stride32,
-                                             currentWithBorderP, currentStride,
-                                             inWithBorderP, inStride,
+                                             current_with_border_ptr, current_stride,
+                                             in_with_border_ptr, in_stride,
                                              w,h,
                                              dx,dy);
 
 #pragma omp parallel for
                 for (int y=0;y<=h-n;y++) {
-                    const uint32_t* iPtr1 = integral+(y  -1)*integral_stride32-1;
-                    const uint32_t* iPtr2 = integral+(y+n-1)*integral_stride32-1;
+                    const uint32_t* integral_ptr1 = integral+(y  -1)*integral_stride32-1;
+                    const uint32_t* integral_ptr2 = integral+(y+n-1)*integral_stride32-1;
 
                     for (int x=0;x<=w-n;x++) {
                         const int xc = x+n2;
                         const int yc = y+n2;
 
-                        int diff = (uint32_t)(iPtr2[n] - iPtr2[0] - iPtr1[n] + iPtr1[0]);
+                        int diff = (uint32_t)(integral_ptr2[n] - integral_ptr2[0] - integral_ptr1[n] + integral_ptr1[0]);
 
                         if (diff<diff_max) {
-                            int diffidx = diff*weightFactTab;
+                            int diffidx = diff*weight_fact_table;
 
                             //float weight = exp(-diff*weightFact);
-                            float weight = exptab[diffidx];
+                            float weight = exptable[diffidx];
 
-                            tmp_data[yc*w+xc].weightSum += weight;
-                            tmp_data[yc*w+xc].pixelSum  += weight * inWithBorderP[(yc+dy)*inStride+xc+dx];
+                            tmp_data[yc*w+xc].weight_sum += weight;
+                            tmp_data[yc*w+xc].pixel_sum  += weight * in_with_border_ptr[(yc+dy)*in_stride+xc+dx];
                         }
 
-                        iPtr1++;
-                        iPtr2++;
+                        integral_ptr1++;
+                        integral_ptr2++;
                     }
                 }
             }
@@ -318,14 +327,14 @@ static void NLMeans_mono_multi(uint8_t* out, int outStride,
     // copy border area
 
     {
-        const uint8_t* in = images[0]->img;
-        int origInStride  = images[0]->stride;
+        const uint8_t* in  = images[0]->img;
+        int orig_in_stride = images[0]->stride;
 
-        for (int y=0;   y<n2;y++) { memcpy(out+y*outStride, in+y*origInStride, w); }
-        for (int y=h-n2;y<h ;y++) { memcpy(out+y*outStride, in+y*origInStride, w); }
+        for (int y=0;   y<n2;y++) { memcpy(out+y*out_stride, in+y*orig_in_stride, w); }
+        for (int y=h-n2;y<h ;y++) { memcpy(out+y*out_stride, in+y*orig_in_stride, w); }
         for (int y=n2;y<h-n2;y++) {
-            memcpy(out+y*outStride,      in+y*origInStride,      n2);
-            memcpy(out+y*outStride+w-n2, in+y*origInStride+w-n2, n2);
+            memcpy(out+y*out_stride,      in+y*orig_in_stride,      n2);
+            memcpy(out+y*out_stride+w-n2, in+y*orig_in_stride+w-n2, n2);
         }
     }
 
@@ -333,7 +342,7 @@ static void NLMeans_mono_multi(uint8_t* out, int outStride,
 
     for (int y=n2;y<h-n2;y++) {
         for (int x=n2;x<w-n2;x++) {
-            *(out+y*outStride+x) = tmp_data[y*w+x].pixelSum / tmp_data[y*w+x].weightSum;
+            *(out+y*out_stride+x) = tmp_data[y*w+x].pixel_sum / tmp_data[y*w+x].weight_sum;
         }
     }
 
@@ -342,12 +351,12 @@ static void NLMeans_mono_multi(uint8_t* out, int outStride,
 }
 
 
-static void NLMeans_color_auto(uint8_t** out, int* outStride,
+static void NLMeans_color_auto(uint8_t** out, int* out_stride,
 			       const ColorImage* img, // function takes ownership
 			       NLMContext* ctx)
 {
     assert(ctx->param.n_frames >= 1);
-    assert(ctx->param.n_frames <= DN_MAX_NLMeansImages);
+    assert(ctx->param.n_frames <= MAX_NLMeansImages);
 
     // free oldest image
 
@@ -375,7 +384,7 @@ static void NLMeans_color_auto(uint8_t** out, int* outStride,
                 images[i] = &ctx->images[i].plane[c];
             }
 
-            NLMeans_mono_multi(out[c], outStride[c],
+            NLMeans_mono_multi(out[c], out_stride[c],
                                images, i, ctx);
         }
 }
@@ -470,6 +479,9 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
         av_frame_copy_props(out, in);
     }
+
+
+    // extend image with border
 
     for (c = 0; c < 3; c++) {
         int w = FF_CEIL_RSHIFT(in->width,  (!!c * nlm->hsub));
