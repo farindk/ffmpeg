@@ -35,29 +35,29 @@
    that range. However, the modulo-arithmetic used when computing the block sums later
    will be still correct when the block size is not too large.
  */
-static void buildIntegralImage_SSE(uint32_t* integral, int integral_stride32,
-                                   const uint8_t* currimage, int currstride,
-				   const uint8_t*  image,    int stride,
+static void buildIntegralImage_SSE(uint32_t* integral_image, int integral_stride,
+                                   const uint8_t* current_image, int current_image_stride,
+				   const uint8_t* compare_image, int compare_image_stride,
 				   int  w,int  h,
 				   int dx,int dy)
 {
     const __m128i zero = _mm_set1_epi8(0);
 
 
-    memset(integral-1-integral_stride32, 0, (w+1)*sizeof(uint32_t));
+    memset(integral_image -1 -integral_stride, 0, (w+1)*sizeof(uint32_t));
 
     for (int y=0;y<h;y++) {
-        const uint8_t* p1 = currimage+y*currstride;
-        const uint8_t* p2 = image+(y+dy)*stride+dx;
+        const uint8_t* p1 = current_image +  y    *current_image_stride;
+        const uint8_t* p2 = compare_image + (y+dy)*compare_image_stride + dx;
 
-        uint32_t* out = integral+y*integral_stride32-1;
+        uint32_t* out = integral_image + y*integral_stride-1;
 
         __m128i prevadd = _mm_set1_epi32(0);
-        const int nPix = 16;
+        const int pixels_step = 16;
 
         *out++ = 0;
 
-        for (int x=0;x<w;x+=nPix)
+        for (int x=0 ; x<w ; x+=pixels_step)
         {
             __m128i pa, pb;
             __m128i pla, plb;
@@ -129,25 +129,25 @@ static void buildIntegralImage_SSE(uint32_t* integral, int integral_stride32,
             _mm_store_si128((__m128i*)(out+12),hhdiff);
 
 
-            out+=nPix;
-            p1+=nPix;
-            p2+=nPix;
+            out+=pixels_step;
+            p1 +=pixels_step;
+            p2 +=pixels_step;
         }
 
         if (y>0) {
-            out = integral+y*integral_stride32;
+            out = integral_image + y*integral_stride;
 
-            for (int x=0;x<w;x+=16) {
-                *((__m128i*)out) = _mm_add_epi32(*(__m128i*)(out-integral_stride32),
+            for (int x=0 ; x<w ; x+=pixels_step) {
+                *((__m128i*)out) = _mm_add_epi32(*(__m128i*)(out-integral_stride),
                                                  *(__m128i*)(out));
 
-                *((__m128i*)(out+4)) = _mm_add_epi32(*(__m128i*)(out+4-integral_stride32),
+                *((__m128i*)(out+4)) = _mm_add_epi32(*(__m128i*)(out+4-integral_stride),
                                                      *(__m128i*)(out+4));
 
-                *((__m128i*)(out+8)) = _mm_add_epi32(*(__m128i*)(out+8-integral_stride32),
+                *((__m128i*)(out+8)) = _mm_add_epi32(*(__m128i*)(out+8-integral_stride),
                                                      *(__m128i*)(out+8));
 
-                *((__m128i*)(out+12)) = _mm_add_epi32(*(__m128i*)(out+12-integral_stride32),
+                *((__m128i*)(out+12)) = _mm_add_epi32(*(__m128i*)(out+12-integral_stride),
                                                       *(__m128i*)(out+12));
 
                 out += 4*4;
