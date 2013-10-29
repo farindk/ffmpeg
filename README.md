@@ -34,7 +34,9 @@ fieldshift
 libde265
 --------
 
-Configure ffmpeg with at least these options:
+Get and install the latest version of libde265 from here: https://github.com/strukturag/libde265
+
+Configure this ffmpeg fork with at least these options:
 
     ./configure --enable-libde265 --enable-decoder=libde265 --enable-gpl
 
