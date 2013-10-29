@@ -524,7 +524,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 static const AVOption options[] = {
     { "h",           "averaging weight decay parameter", OFFSET(param.h_param),    AV_OPT_TYPE_DOUBLE, { .dbl = 8.0 }, 0.1, 100.0, FLAGS },
     { "patchsize",   "patch width/height",               OFFSET(param.patch_size), AV_OPT_TYPE_INT,    { .i64 = 7   },   3, 255,   FLAGS },
-    { "range",       "search range",                     OFFSET(param.range),      AV_OPT_TYPE_INT,    { .i64 = 3   },   3, 255,   FLAGS },
+    { "range",       "search range",                     OFFSET(param.range),      AV_OPT_TYPE_INT,    { .i64 = 3   },   1, 255,   FLAGS },
     { "temporal",    "temporal search range",            OFFSET(param.n_frames),   AV_OPT_TYPE_INT,    { .i64 = 2   },   1, MAX_NLMeansImages,   FLAGS },
     { NULL },
 };
