@@ -31,6 +31,7 @@
 #include "libavutil/imgutils.h"
 #include "avcodec.h"
 #include "internal.h"
+#include "libavutil/intreadwrite.h"
 
 
 typedef struct DE265DecoderContext {
@@ -51,6 +52,14 @@ static int de265_decode(AVCodecContext *avctx,
     const uint8_t* src[4];
     int stride[4];
 
+    // replace 4-byte length fields with NAL start codes
+    uint8_t* avpkt_data = avpkt->data;
+    uint8_t* avpkt_end = avpkt->data + avpkt->size;
+    while (avpkt_data + 4 < avpkt_end) {
+      int nal_size = AV_RB32(avpkt_data);
+      AV_WB32(avpkt_data, 0x00000001);
+      avpkt_data += 4 + nal_size;
+    }
 
     err = de265_decode_data(ctx->decoder, avpkt->data, avpkt->size);
     if (err != DE265_OK) {
