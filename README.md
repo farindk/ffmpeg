@@ -35,6 +35,7 @@ libde265
 --------
 
 Configure ffmpeg with at least these options:
+
     ./configure --enable-libde265 --enable-decoder=libde265 --enable-gpl
 
 The patched ffmpeg can play MKVs containing H.265 streams encoded with
