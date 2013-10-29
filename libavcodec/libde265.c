@@ -34,8 +34,13 @@
 #include "libavutil/intreadwrite.h"
 
 
+#define DE265_MAX_PTS_QUEUE 256
+
 typedef struct DE265DecoderContext {
   de265_decoder_context* decoder;
+
+  int64_t pts_queue[DE265_MAX_PTS_QUEUE];
+  int pts_queue_len;
 } DE265Context;
 
 
@@ -51,6 +56,23 @@ static int de265_decode(AVCodecContext *avctx,
 
     const uint8_t* src[4];
     int stride[4];
+
+    // insert input packet PTS into sorted queue
+    if (ctx->pts_queue_len < DE265_MAX_PTS_QUEUE) {
+      int pos=0;
+      while (ctx->pts_queue[pos] < avpkt->pts &&
+	     pos<ctx->pts_queue_len) {
+	pos++;
+      }
+
+      if (pos < ctx->pts_queue_len) {
+	memmove(&ctx->pts_queue[pos+1], &ctx->pts_queue[pos],
+		sizeof(int64_t) * (ctx->pts_queue_len - pos));
+      }
+
+      ctx->pts_queue[pos] = avpkt->pts;
+      ctx->pts_queue_len++;
+    }
 
     // replace 4-byte length fields with NAL start codes
     uint8_t* avpkt_data = avpkt->data;
@@ -92,7 +114,21 @@ static int de265_decode(AVCodecContext *avctx,
         av_image_copy(picture->data, picture->linesize, src, stride,
                       avctx->pix_fmt, width, height);
         *got_frame = 1;
+
+
+	// assign next PTS from queue
+	if (ctx->pts_queue_len>0) {
+	  picture->pkt_pts = ctx->pts_queue[0];
+
+	  if (ctx->pts_queue_len>1) {
+	    memmove(&ctx->pts_queue[0], &ctx->pts_queue[1],
+		    sizeof(int64_t) * (ctx->pts_queue_len-1));
+	  }
+
+	  ctx->pts_queue_len--;
+	}
     }
+
     return avpkt->size;
 }
 
