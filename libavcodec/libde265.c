@@ -54,43 +54,47 @@ static int libde265_decode(AVCodecContext *avctx,
     const struct de265_image *img;
     de265_error err;
     int ret;
+    int more;
 
     const uint8_t* src[4];
     int stride[4];
 
-    // insert input packet PTS into sorted queue
-    if (ctx->pts_queue_len < DE265_MAX_PTS_QUEUE) {
-      int pos=0;
-      while (ctx->pts_queue[pos] < avpkt->pts &&
-	     pos<ctx->pts_queue_len) {
-	pos++;
+
+    // push all NALs into the decoder
+
+    if (avpkt->size > 0) {
+      uint8_t* avpkt_data = avpkt->data;
+      uint8_t* avpkt_end = avpkt->data + avpkt->size;
+      while (avpkt_data + 4 < avpkt_end) {
+	int nal_size = AV_RB32(avpkt_data);
+	
+	err = de265_push_NAL(ctx->decoder, avpkt_data+4, nal_size,
+			     avpkt->pts, NULL);
+	if (err != DE265_OK) {
+	  const char *error  = de265_get_error_text(err);
+	  
+	  av_log(avctx, AV_LOG_ERROR, "Failed to push data: %s\n", error);
+	  return AVERROR_INVALIDDATA;
+	}
+	
+	avpkt_data += 4 + nal_size;
       }
-
-      if (pos < ctx->pts_queue_len) {
-	memmove(&ctx->pts_queue[pos+1], &ctx->pts_queue[pos],
-		sizeof(int64_t) * (ctx->pts_queue_len - pos));
-      }
-
-      ctx->pts_queue[pos] = avpkt->pts;
-      ctx->pts_queue_len++;
+    }
+    else {
+      // indicate end-of-stream
+      de265_flush_data(ctx->decoder);
     }
 
-    // replace 4-byte length fields with NAL start codes
-    uint8_t* avpkt_data = avpkt->data;
-    uint8_t* avpkt_end = avpkt->data + avpkt->size;
-    while (avpkt_data + 4 < avpkt_end) {
-      int nal_size = AV_RB32(avpkt_data);
-      AV_WB32(avpkt_data, 0x00000001);
-      avpkt_data += 4 + nal_size;
-    }
 
-    err = de265_decode_data(ctx->decoder, avpkt->data, avpkt->size);
-    if (err != DE265_OK) {
-        const char *error  = de265_get_error_text(err);
+    // decode as much as possible
 
-        av_log(avctx, AV_LOG_ERROR, "Failed to decode frame: %s\n", error);
-        return AVERROR_INVALIDDATA;
-    }
+    more = 0;
+    do {
+      err = de265_decode(ctx->decoder, &more);
+    } while (more && err == DE265_OK);
+
+
+    // get decoded picture
 
     if (img = de265_get_next_picture(ctx->decoder)) {
       int width  = de265_get_image_width(img,0);
@@ -117,17 +121,9 @@ static int libde265_decode(AVCodecContext *avctx,
         *got_frame = 1;
 
 
-	// assign next PTS from queue
-	if (ctx->pts_queue_len>0) {
-	  picture->pkt_pts = ctx->pts_queue[0];
 
-	  if (ctx->pts_queue_len>1) {
-	    memmove(&ctx->pts_queue[0], &ctx->pts_queue[1],
-		    sizeof(int64_t) * (ctx->pts_queue_len-1));
-	  }
-
-	  ctx->pts_queue_len--;
-	}
+	// assign PTS
+	picture->pkt_pts = de265_get_image_PTS(img);
     }
 
     return avpkt->size;
