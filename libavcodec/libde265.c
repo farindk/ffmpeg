@@ -45,8 +45,8 @@ typedef struct DE265DecoderContext {
 
 
 
-static int de265_decode(AVCodecContext *avctx,
-                        void *data, int *got_frame, AVPacket *avpkt)
+static int libde265_decode(AVCodecContext *avctx,
+			   void *data, int *got_frame, AVPacket *avpkt)
 {
     DE265Context *ctx = avctx->priv_data;
     AVFrame *picture = data;
@@ -133,7 +133,7 @@ static int de265_decode(AVCodecContext *avctx,
 }
 
 
-static av_cold int de265_free(AVCodecContext *avctx)
+static av_cold int libde265_free(AVCodecContext *avctx)
 {
     DE265Context *ctx = avctx->priv_data;
     de265_free_decoder(ctx->decoder);
@@ -141,14 +141,13 @@ static av_cold int de265_free(AVCodecContext *avctx)
 }
 
 
-static av_cold void de265_static_init(struct AVCodec *codec)
+static av_cold void libde265_static_init(struct AVCodec *codec)
 {
-    de265_init();
 }
 
 
 #if CONFIG_LIBDE265_DECODER
-static av_cold int de265_ctx_init(AVCodecContext *avctx)
+static av_cold int libde265_ctx_init(AVCodecContext *avctx)
 {
     DE265Context *ctx = avctx->priv_data;
     ctx->decoder = de265_new_decoder();
@@ -163,10 +162,10 @@ AVCodec ff_libde265_decoder = {
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_H265,
     .priv_data_size = sizeof(DE265Context),
-    .init_static_data = de265_static_init,
-    .init           = de265_ctx_init,
-    .close          = de265_free,
-    .decode         = de265_decode,
+    .init_static_data = libde265_static_init,
+    .init           = libde265_ctx_init,
+    .close          = libde265_free,
+    .decode         = libde265_decode,
     .capabilities   = CODEC_CAP_AUTO_THREADS | CODEC_CAP_DR1,
     .long_name      = NULL_IF_CONFIG_SMALL("libde265 H.265/HEVC decoder"),
 };
