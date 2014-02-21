@@ -35,6 +35,7 @@
 
 
 #define DE265_MAX_PTS_QUEUE 256
+#define DE265_DEFAULT_NUMBER_OF_THREADS 4
 
 typedef struct DE265DecoderContext {
   de265_decoder_context* decoder;
@@ -151,6 +152,7 @@ static av_cold int libde265_ctx_init(AVCodecContext *avctx)
 {
     DE265Context *ctx = avctx->priv_data;
     ctx->decoder = de265_new_decoder();
+    de265_error err = de265_start_worker_threads(ctx->decoder, DE265_DEFAULT_NUMBER_OF_THREADS);
 
     avctx->pix_fmt = AV_PIX_FMT_YUV420P;
     return 0;
