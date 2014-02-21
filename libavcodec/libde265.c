@@ -142,11 +142,6 @@ static av_cold int libde265_free(AVCodecContext *avctx)
 }
 
 
-static av_cold void libde265_static_init(struct AVCodec *codec)
-{
-}
-
-
 #if CONFIG_LIBDE265_DECODER
 static av_cold int libde265_ctx_init(AVCodecContext *avctx)
 {
@@ -164,7 +159,6 @@ AVCodec ff_libde265_decoder = {
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_H265,
     .priv_data_size = sizeof(DE265Context),
-    .init_static_data = libde265_static_init,
     .init           = libde265_ctx_init,
     .close          = libde265_free,
     .decode         = libde265_decode,
