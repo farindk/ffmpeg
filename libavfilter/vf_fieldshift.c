@@ -306,7 +306,7 @@ static const AVFilterPad avfilter_vf_fieldshift_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_fieldshift = {
+AVFilter ff_vf_fieldshift = {
     .name          = "fieldshift",
     .description   = NULL_IF_CONFIG_SMALL("Shift fields against each other"),
 
