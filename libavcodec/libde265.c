@@ -112,9 +112,10 @@ static int libde265_decode(AVCodecContext *avctx,
         if ((ret = ff_get_buffer(avctx, picture, 0)) < 0)
             return ret;
 
-        for (int i=0;i<4;i++) {
+        for (int i=0;i<3;i++) {
             src[i] = de265_get_image_plane(img,i, &stride[i]);
         }
+        src[3]=0; stride[3]=0;
 
         av_image_copy(picture->data, picture->linesize, src, stride,
                       avctx->pix_fmt, width, height);
