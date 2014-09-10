@@ -260,7 +260,7 @@ static void decode_rgb_frame(FFV1Context *s, uint8_t *src[3], int w, int h, int 
             if (s->slice_coding_mode != 1) {
                 b -= offset;
                 r -= offset;
-                g -= (b + r) >> 2;
+                g -= (b * s->slice_rct_by_coef + r * s->slice_rct_ry_coef) >> 2;
                 b += g;
                 r += g;
             }
@@ -330,10 +330,28 @@ static int decode_slice_header(FFV1Context *f, FFV1Context *fs)
     }
     f->cur->sample_aspect_ratio.num = get_symbol(c, state, 0);
     f->cur->sample_aspect_ratio.den = get_symbol(c, state, 0);
+
+    if (av_image_check_sar(f->width, f->height,
+                           f->cur->sample_aspect_ratio) < 0) {
+        av_log(f->avctx, AV_LOG_WARNING, "ignoring invalid SAR: %u/%u\n",
+               f->cur->sample_aspect_ratio.num,
+               f->cur->sample_aspect_ratio.den);
+        f->cur->sample_aspect_ratio = (AVRational){ 0, 1 };
+    }
+
     if (fs->version > 3) {
         fs->slice_reset_contexts = get_rac(c, state);
         fs->slice_coding_mode = get_symbol(c, state, 0);
+        if (fs->slice_coding_mode != 1) {
+            fs->slice_rct_by_coef = get_symbol(c, state, 0);
+            fs->slice_rct_ry_coef = get_symbol(c, state, 0);
+            if ((uint64_t)fs->slice_rct_by_coef + (uint64_t)fs->slice_rct_ry_coef > 4) {
+                av_log(f->avctx, AV_LOG_ERROR, "slice_rct_y_coef out of range\n");
+                return AVERROR_INVALIDDATA;
+            }
+        }
     }
+
     return 0;
 }
 
@@ -372,14 +390,17 @@ static int decode_slice(AVCodecContext *c, void *arg)
             pdst->vlc_state = NULL;
 
             if (fssrc->ac) {
-                pdst->state = av_malloc(CONTEXT_SIZE * psrc->context_count);
+                pdst->state = av_malloc_array(CONTEXT_SIZE,  psrc->context_count);
                 memcpy(pdst->state, psrc->state, CONTEXT_SIZE * psrc->context_count);
             } else {
-                pdst->vlc_state = av_malloc(sizeof(*pdst->vlc_state) * psrc->context_count);
+                pdst->vlc_state = av_malloc_array(sizeof(*pdst->vlc_state), psrc->context_count);
                 memcpy(pdst->vlc_state, psrc->vlc_state, sizeof(*pdst->vlc_state) * psrc->context_count);
             }
         }
     }
+
+    fs->slice_rct_by_coef = 1;
+    fs->slice_rct_ry_coef = 1;
 
     if (f->version > 2) {
         if (ffv1_init_slice_state(f, fs) < 0)
@@ -611,36 +632,37 @@ static int read_header(FFV1Context *f)
                 f->state_transition[i] = get_symbol(c, state, 1) + c->one_state[i];
         }
 
-        colorspace     = get_symbol(c, state, 0); //YUV cs type
+        colorspace          = get_symbol(c, state, 0); //YUV cs type
         bits_per_raw_sample = f->version > 0 ? get_symbol(c, state, 0) : f->avctx->bits_per_raw_sample;
-        chroma_planes  = get_rac(c, state);
-        chroma_h_shift = get_symbol(c, state, 0);
-        chroma_v_shift = get_symbol(c, state, 0);
-        transparency   = get_rac(c, state);
+        chroma_planes       = get_rac(c, state);
+        chroma_h_shift      = get_symbol(c, state, 0);
+        chroma_v_shift      = get_symbol(c, state, 0);
+        transparency        = get_rac(c, state);
 
         if (f->plane_count) {
-            if (   colorspace    != f->colorspace
-                || bits_per_raw_sample != f->avctx->bits_per_raw_sample
-                || chroma_planes != f->chroma_planes
-                || chroma_h_shift!= f->chroma_h_shift
-                || chroma_v_shift!= f->chroma_v_shift
-                || transparency  != f->transparency) {
+            if (colorspace          != f->colorspace                 ||
+                bits_per_raw_sample != f->avctx->bits_per_raw_sample ||
+                chroma_planes       != f->chroma_planes              ||
+                chroma_h_shift      != f->chroma_h_shift             ||
+                chroma_v_shift      != f->chroma_v_shift             ||
+                transparency        != f->transparency) {
                 av_log(f->avctx, AV_LOG_ERROR, "Invalid change of global parameters\n");
                 return AVERROR_INVALIDDATA;
             }
         }
 
-        f->colorspace     = colorspace;
+        f->colorspace                 = colorspace;
         f->avctx->bits_per_raw_sample = bits_per_raw_sample;
-        f->chroma_planes  = chroma_planes;
-        f->chroma_h_shift = chroma_h_shift;
-        f->chroma_v_shift = chroma_v_shift;
-        f->transparency   = transparency;
+        f->chroma_planes              = chroma_planes;
+        f->chroma_h_shift             = chroma_h_shift;
+        f->chroma_v_shift             = chroma_v_shift;
+        f->transparency               = transparency;
 
         f->plane_count    = 2 + f->transparency;
     }
 
     if (f->colorspace == 0) {
+        if (f->avctx->skip_alpha) f->transparency = 0;
         if (!f->transparency && !f->chroma_planes) {
             if (f->avctx->bits_per_raw_sample <= 8)
                 f->avctx->pix_fmt = AV_PIX_FMT_GRAY8;
@@ -937,12 +959,12 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame, AVPac
             uint8_t *dst[4];
             ff_thread_await_progress(&f->last_picture, INT_MAX, 0);
             for (j = 0; j < 4; j++) {
-                int sh = (j==1 || j==2) ? f->chroma_h_shift : 0;
-                int sv = (j==1 || j==2) ? f->chroma_v_shift : 0;
-                dst[j] = p->data[j] + p->linesize[j]*
-                         (fs->slice_y>>sv) + (fs->slice_x>>sh);
-                src[j] = f->last_picture.f->data[j] + f->last_picture.f->linesize[j]*
-                         (fs->slice_y>>sv) + (fs->slice_x>>sh);
+                int sh = (j == 1 || j == 2) ? f->chroma_h_shift : 0;
+                int sv = (j == 1 || j == 2) ? f->chroma_v_shift : 0;
+                dst[j] = p->data[j] + p->linesize[j] *
+                         (fs->slice_y >> sv) + (fs->slice_x >> sh);
+                src[j] = f->last_picture.f->data[j] + f->last_picture.f->linesize[j] *
+                         (fs->slice_y >> sv) + (fs->slice_x >> sh);
             }
             av_image_copy(dst, p->linesize, (const uint8_t **)src,
                           f->last_picture.f->linesize,
@@ -1060,6 +1082,7 @@ static int update_thread_context(AVCodecContext *dst, const AVCodecContext *src)
 
 AVCodec ff_ffv1_decoder = {
     .name           = "ffv1",
+    .long_name      = NULL_IF_CONFIG_SMALL("FFmpeg video codec #1"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_FFV1,
     .priv_data_size = sizeof(FFV1Context),
@@ -1070,5 +1093,4 @@ AVCodec ff_ffv1_decoder = {
     .update_thread_context = ONLY_IF_THREADS_ENABLED(update_thread_context),
     .capabilities   = CODEC_CAP_DR1 /*| CODEC_CAP_DRAW_HORIZ_BAND*/ |
                       CODEC_CAP_FRAME_THREADS | CODEC_CAP_SLICE_THREADS,
-    .long_name      = NULL_IF_CONFIG_SMALL("FFmpeg video codec #1"),
 };

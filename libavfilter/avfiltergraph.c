@@ -31,7 +31,6 @@
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
-#include "libavcodec/avcodec.h" // avcodec_find_best_pix_fmt_of_2()
 
 #include "avfilter.h"
 #include "formats.h"
@@ -182,11 +181,15 @@ AVFilterContext *avfilter_graph_alloc_filter(AVFilterGraph *graph,
 {
     AVFilterContext **filters, *s;
 
-    if (graph->thread_type && !graph->internal->thread) {
-        int ret = ff_graph_thread_init(graph);
-        if (ret < 0) {
-            av_log(graph, AV_LOG_ERROR, "Error initializing threading.\n");
-            return NULL;
+    if (graph->thread_type && !graph->internal->thread_execute) {
+        if (graph->execute) {
+            graph->internal->thread_execute = graph->execute;
+        } else {
+            int ret = ff_graph_thread_init(graph);
+            if (ret < 0) {
+                av_log(graph, AV_LOG_ERROR, "Error initializing threading.\n");
+                return NULL;
+            }
         }
     }
 
@@ -220,7 +223,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
  * A graph is considered valid if all its input and output pads are
  * connected.
  *
- * @return 0 in case of success, a negative value otherwise
+ * @return >= 0 in case of success, a negative value otherwise
  */
 static int graph_check_validity(AVFilterGraph *graph, AVClass *log_ctx)
 {
@@ -258,7 +261,7 @@ static int graph_check_validity(AVFilterGraph *graph, AVClass *log_ctx)
 /**
  * Configure all the links of graphctx.
  *
- * @return 0 in case of success, a negative value otherwise
+ * @return >= 0 in case of success, a negative value otherwise
  */
 static int graph_config_links(AVFilterGraph *graph, AVClass *log_ctx)
 {
@@ -277,7 +280,7 @@ static int graph_config_links(AVFilterGraph *graph, AVClass *log_ctx)
     return 0;
 }
 
-AVFilterContext *avfilter_graph_get_filter(AVFilterGraph *graph, char *name)
+AVFilterContext *avfilter_graph_get_filter(AVFilterGraph *graph, const char *name)
 {
     int i;
 
@@ -388,6 +391,19 @@ static int can_merge_formats(AVFilterFormats *a_arg,
         return 1;
     a = clone_filter_formats(a_arg);
     b = clone_filter_formats(b_arg);
+
+    if (!a || !b) {
+        if (a)
+            av_freep(&a->formats);
+        if (b)
+            av_freep(&b->formats);
+
+        av_freep(&a);
+        av_freep(&b);
+
+        return 0;
+    }
+
     if (is_sample_rate) {
         ret = ff_merge_samplerates(a, b);
     } else {
@@ -546,21 +562,35 @@ static int query_formats(AVFilterGraph *graph, AVClass *log_ctx)
                 filter_query_formats(convert);
                 inlink  = convert->inputs[0];
                 outlink = convert->outputs[0];
+                av_assert0( inlink-> in_formats->refcount > 0);
+                av_assert0( inlink->out_formats->refcount > 0);
+                av_assert0(outlink-> in_formats->refcount > 0);
+                av_assert0(outlink->out_formats->refcount > 0);
+                if (outlink->type == AVMEDIA_TYPE_AUDIO) {
+                    av_assert0( inlink-> in_samplerates->refcount > 0);
+                    av_assert0( inlink->out_samplerates->refcount > 0);
+                    av_assert0(outlink-> in_samplerates->refcount > 0);
+                    av_assert0(outlink->out_samplerates->refcount > 0);
+                    av_assert0( inlink-> in_channel_layouts->refcount > 0);
+                    av_assert0( inlink->out_channel_layouts->refcount > 0);
+                    av_assert0(outlink-> in_channel_layouts->refcount > 0);
+                    av_assert0(outlink->out_channel_layouts->refcount > 0);
+                }
                 if (!ff_merge_formats( inlink->in_formats,  inlink->out_formats,  inlink->type) ||
                     !ff_merge_formats(outlink->in_formats, outlink->out_formats, outlink->type))
-                    ret |= AVERROR(ENOSYS);
+                    ret = AVERROR(ENOSYS);
                 if (inlink->type == AVMEDIA_TYPE_AUDIO &&
                     (!ff_merge_samplerates(inlink->in_samplerates,
                                            inlink->out_samplerates) ||
                      !ff_merge_channel_layouts(inlink->in_channel_layouts,
                                                inlink->out_channel_layouts)))
-                    ret |= AVERROR(ENOSYS);
+                    ret = AVERROR(ENOSYS);
                 if (outlink->type == AVMEDIA_TYPE_AUDIO &&
                     (!ff_merge_samplerates(outlink->in_samplerates,
                                            outlink->out_samplerates) ||
                      !ff_merge_channel_layouts(outlink->in_channel_layouts,
                                                outlink->out_channel_layouts)))
-                    ret |= AVERROR(ENOSYS);
+                    ret = AVERROR(ENOSYS);
 
                 if (ret < 0) {
                     av_log(log_ctx, AV_LOG_ERROR,
@@ -611,7 +641,7 @@ static int pick_format(AVFilterLink *link, AVFilterLink *ref)
             int i;
             for (i=0; i<link->in_formats->nb_formats; i++) {
                 enum AVPixelFormat p = link->in_formats->formats[i];
-                best= avcodec_find_best_pix_fmt_of_2(best, p, ref->format, has_alpha, NULL);
+                best= av_find_best_pix_fmt_of_2(best, p, ref->format, has_alpha, NULL);
             }
             av_log(link->src,AV_LOG_DEBUG, "picking %s out of %d ref:%s alpha:%d\n",
                    av_get_pix_fmt_name(best), link->in_formats->nb_formats,
@@ -637,6 +667,10 @@ static int pick_format(AVFilterLink *link, AVFilterLink *ref)
             av_log(link->src, AV_LOG_ERROR, "Cannot select channel layout for"
                    " the link between filters %s and %s.\n", link->src->name,
                    link->dst->name);
+            if (!link->in_channel_layouts->all_counts)
+                av_log(link->src, AV_LOG_ERROR, "Unknown channel layouts not "
+                       "supported, try specifying a channel layout using "
+                       "'aformat=channel_layouts=something'.\n");
             return AVERROR(EINVAL);
         }
         link->in_channel_layouts->nb_channel_layouts = 1;
@@ -720,7 +754,8 @@ static int reduce_formats_on_filter(AVFilterContext *filter)
             if (inlink->type != outlink->type || fmts->nb_channel_layouts == 1)
                 continue;
 
-            if (fmts->all_layouts) {
+            if (fmts->all_layouts &&
+                (!FF_LAYOUT2COUNT(fmt) || fmts->all_counts)) {
                 /* Turn the infinite list into a singleton */
                 fmts->all_layouts = fmts->all_counts  = 0;
                 ff_add_channel_layout(&outlink->in_channel_layouts, fmt);

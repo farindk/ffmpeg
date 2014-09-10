@@ -40,8 +40,8 @@
 #include "libavutil/internal.h"
 #include "libavutil/libm.h"
 #include "avcodec.h"
+#include "bswapdsp.h"
 #include "get_bits.h"
-#include "dsputil.h"
 #include "fft.h"
 #include "internal.h"
 #include "sinewin.h"
@@ -95,7 +95,7 @@ typedef struct {
     float sqrt_tab[30];
     GetBitContext gb;
 
-    DSPContext dsp;
+    BswapDSPContext bdsp;
     AVFloatDSPContext fdsp;
     FFTContext fft;
     DECLARE_ALIGNED(32, FFTComplex, samples)[COEFFS / 2];
@@ -180,6 +180,14 @@ static av_cold int imc_decode_init(AVCodecContext *avctx)
     IMCContext *q = avctx->priv_data;
     double r1, r2;
 
+    if (avctx->codec_id == AV_CODEC_ID_IAC && avctx->sample_rate > 96000) {
+        av_log(avctx, AV_LOG_ERROR,
+               "Strange sample rate of %i, file likely corrupt or "
+               "needing a new table derivation method.\n",
+               avctx->sample_rate);
+        return AVERROR_PATCHWELCOME;
+    }
+
     if (avctx->codec_id == AV_CODEC_ID_IMC)
         avctx->channels = 1;
 
@@ -247,7 +255,7 @@ static av_cold int imc_decode_init(AVCodecContext *avctx)
         av_log(avctx, AV_LOG_INFO, "FFT init failed\n");
         return ret;
     }
-    ff_dsputil_init(&q->dsp, avctx);
+    ff_bswapdsp_init(&q->bdsp);
     avpriv_float_dsp_init(&q->fdsp, avctx->flags & CODEC_FLAG_BITEXACT);
     avctx->sample_fmt     = AV_SAMPLE_FMT_FLTP;
     avctx->channel_layout = avctx->channels == 1 ? AV_CH_LAYOUT_MONO
@@ -451,8 +459,13 @@ static int bit_allocation(IMCContext *q, IMCChannel *chctx,
     for (i = 0; i < BANDS; i++)
         highest = FFMAX(highest, chctx->flcoeffs1[i]);
 
-    for (i = 0; i < BANDS - 1; i++)
+    for (i = 0; i < BANDS - 1; i++) {
+        if (chctx->flcoeffs5[i] <= 0) {
+            av_log(NULL, AV_LOG_ERROR, "flcoeffs5 %f invalid\n", chctx->flcoeffs5[i]);
+            return AVERROR_INVALIDDATA;
+        }
         chctx->flcoeffs4[i] = chctx->flcoeffs3[i] - log2f(chctx->flcoeffs5[i]);
+    }
     chctx->flcoeffs4[BANDS - 1] = limit;
 
     highest = highest * 0.25;
@@ -1005,7 +1018,7 @@ static int imc_decode_frame(AVCodecContext *avctx, void *data,
 
     IMCContext *q = avctx->priv_data;
 
-    LOCAL_ALIGNED_16(uint16_t, buf16, [IMC_BLOCK_SIZE / 2]);
+    LOCAL_ALIGNED_16(uint16_t, buf16, [IMC_BLOCK_SIZE / 2 + FF_INPUT_BUFFER_PADDING_SIZE/2]);
 
     if (buf_size < IMC_BLOCK_SIZE * avctx->channels) {
         av_log(avctx, AV_LOG_ERROR, "frame too small!\n");
@@ -1020,7 +1033,7 @@ static int imc_decode_frame(AVCodecContext *avctx, void *data,
     for (i = 0; i < avctx->channels; i++) {
         q->out_samples = (float *)frame->extended_data[i];
 
-        q->dsp.bswap16_buf(buf16, (const uint16_t*)buf, IMC_BLOCK_SIZE / 2);
+        q->bdsp.bswap16_buf(buf16, (const uint16_t *) buf, IMC_BLOCK_SIZE / 2);
 
         init_get_bits(&q->gb, (const uint8_t*)buf16, IMC_BLOCK_SIZE * 8);
 
@@ -1061,6 +1074,7 @@ static av_cold void flush(AVCodecContext *avctx)
 #if CONFIG_IMC_DECODER
 AVCodec ff_imc_decoder = {
     .name           = "imc",
+    .long_name      = NULL_IF_CONFIG_SMALL("IMC (Intel Music Coder)"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_IMC,
     .priv_data_size = sizeof(IMCContext),
@@ -1069,7 +1083,6 @@ AVCodec ff_imc_decoder = {
     .decode         = imc_decode_frame,
     .flush          = flush,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("IMC (Intel Music Coder)"),
     .sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_FLTP,
                                                       AV_SAMPLE_FMT_NONE },
 };
@@ -1077,6 +1090,7 @@ AVCodec ff_imc_decoder = {
 #if CONFIG_IAC_DECODER
 AVCodec ff_iac_decoder = {
     .name           = "iac",
+    .long_name      = NULL_IF_CONFIG_SMALL("IAC (Indeo Audio Coder)"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_IAC,
     .priv_data_size = sizeof(IMCContext),
@@ -1085,7 +1099,6 @@ AVCodec ff_iac_decoder = {
     .decode         = imc_decode_frame,
     .flush          = flush,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("IAC (Indeo Audio Coder)"),
     .sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_FLTP,
                                                       AV_SAMPLE_FMT_NONE },
 };

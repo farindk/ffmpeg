@@ -366,7 +366,7 @@ static int libopus_encode(AVCodecContext *avctx, AVPacket *avpkt,
         uint8_t* side_data = av_packet_new_side_data(avpkt,
                                                      AV_PKT_DATA_SKIP_SAMPLES,
                                                      10);
-        if(side_data == NULL) {
+        if(!side_data) {
             av_free_packet(avpkt);
             av_free(avpkt);
             return AVERROR(ENOMEM);
@@ -400,7 +400,7 @@ static const AVOption libopus_options[] = {
         { "voip",           "Favor improved speech intelligibility",   0, AV_OPT_TYPE_CONST, { .i64 = OPUS_APPLICATION_VOIP },                0, 0, FLAGS, "application" },
         { "audio",          "Favor faithfulness to the input",         0, AV_OPT_TYPE_CONST, { .i64 = OPUS_APPLICATION_AUDIO },               0, 0, FLAGS, "application" },
         { "lowdelay",       "Restrict to only the lowest delay modes", 0, AV_OPT_TYPE_CONST, { .i64 = OPUS_APPLICATION_RESTRICTED_LOWDELAY }, 0, 0, FLAGS, "application" },
-    { "frame_duration", "Duration of a frame in milliseconds", OFFSET(frame_duration), AV_OPT_TYPE_FLOAT, { .dbl = 10.0 }, 2.5, 60.0, FLAGS },
+    { "frame_duration", "Duration of a frame in milliseconds", OFFSET(frame_duration), AV_OPT_TYPE_FLOAT, { .dbl = 20.0 }, 2.5, 60.0, FLAGS },
     { "packet_loss",    "Expected packet loss percentage",     OFFSET(packet_loss),    AV_OPT_TYPE_INT,   { .i64 = 0 },    0,   100,  FLAGS },
     { "vbr",            "Variable bit rate mode",              OFFSET(vbr),            AV_OPT_TYPE_INT,   { .i64 = 1 },    0,   2,    FLAGS, "vbr" },
         { "off",            "Use constant bit rate", 0, AV_OPT_TYPE_CONST, { .i64 = 0 }, 0, 0, FLAGS, "vbr" },
@@ -428,6 +428,7 @@ static const int libopus_sample_rates[] = {
 
 AVCodec ff_libopus_encoder = {
     .name            = "libopus",
+    .long_name       = NULL_IF_CONFIG_SMALL("libopus Opus"),
     .type            = AVMEDIA_TYPE_AUDIO,
     .id              = AV_CODEC_ID_OPUS,
     .priv_data_size  = sizeof(LibopusEncContext),
@@ -440,7 +441,6 @@ AVCodec ff_libopus_encoder = {
                                                       AV_SAMPLE_FMT_NONE },
     .channel_layouts = ff_vorbis_channel_layouts,
     .supported_samplerates = libopus_sample_rates,
-    .long_name       = NULL_IF_CONFIG_SMALL("libopus Opus"),
     .priv_class      = &libopus_class,
     .defaults        = libopus_defaults,
 };

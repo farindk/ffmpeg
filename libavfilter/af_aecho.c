@@ -16,13 +16,12 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with FFmpeg; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
- *
  */
 
+#include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/opt.h"
 #include "libavutil/samplefmt.h"
-#include "libavutil/avassert.h"
 #include "avfilter.h"
 #include "audio.h"
 #include "internal.h"
@@ -52,7 +51,7 @@ static const AVOption aecho_options[] = {
     { "out_gain", "set signal output gain", OFFSET(out_gain), AV_OPT_TYPE_FLOAT,  {.dbl=0.3}, 0, 1, A },
     { "delays",   "set list of signal delays", OFFSET(delays), AV_OPT_TYPE_STRING, {.str="1000"}, 0, 0, A },
     { "decays",   "set list of signal decays", OFFSET(decays), AV_OPT_TYPE_STRING, {.str="0.5"}, 0, 0, A },
-    { NULL },
+    { NULL }
 };
 
 AVFILTER_DEFINE_CLASS(aecho);
@@ -282,13 +281,14 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
         av_frame_copy_props(out_frame, frame);
     }
 
-    s->echo_samples(s, s->delayptrs, frame->data, out_frame->data,
+    s->echo_samples(s, s->delayptrs, frame->extended_data, out_frame->extended_data,
                     frame->nb_samples, inlink->channels);
+
+    s->next_pts = frame->pts + av_rescale_q(frame->nb_samples, (AVRational){1, inlink->sample_rate}, inlink->time_base);
 
     if (frame != out_frame)
         av_frame_free(&frame);
 
-    s->next_pts = frame->pts + av_rescale_q(frame->nb_samples, (AVRational){1, inlink->sample_rate}, inlink->time_base);
     return ff_filter_frame(ctx->outputs[0], out_frame);
 }
 
@@ -314,7 +314,7 @@ static int request_frame(AVFilterLink *outlink)
                                outlink->channels,
                                frame->format);
 
-        s->echo_samples(s, s->delayptrs, frame->data, frame->data,
+        s->echo_samples(s, s->delayptrs, frame->extended_data, frame->extended_data,
                         frame->nb_samples, outlink->channels);
 
         frame->pts = s->next_pts;
@@ -333,7 +333,7 @@ static const AVFilterPad aecho_inputs[] = {
         .type         = AVMEDIA_TYPE_AUDIO,
         .filter_frame = filter_frame,
     },
-    { NULL },
+    { NULL }
 };
 
 static const AVFilterPad aecho_outputs[] = {
@@ -343,10 +343,10 @@ static const AVFilterPad aecho_outputs[] = {
         .config_props  = config_output,
         .type          = AVMEDIA_TYPE_AUDIO,
     },
-    { NULL },
+    { NULL }
 };
 
-AVFilter avfilter_af_aecho = {
+AVFilter ff_af_aecho = {
     .name          = "aecho",
     .description   = NULL_IF_CONFIG_SMALL("Add echoing to the audio."),
     .query_formats = query_formats,

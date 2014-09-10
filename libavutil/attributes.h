@@ -52,6 +52,8 @@
 
 #if AV_GCC_VERSION_AT_LEAST(3,1)
 #    define av_noinline __attribute__((noinline))
+#elif defined(_MSC_VER)
+#    define av_noinline __declspec(noinline)
 #else
 #    define av_noinline
 #endif
@@ -60,10 +62,6 @@
 #    define av_pure __attribute__((pure))
 #else
 #    define av_pure
-#endif
-
-#ifndef av_restrict
-#define av_restrict restrict
 #endif
 
 #if AV_GCC_VERSION_AT_LEAST(2,6)
@@ -78,7 +76,7 @@
 #    define av_cold
 #endif
 
-#if AV_GCC_VERSION_AT_LEAST(4,1)
+#if AV_GCC_VERSION_AT_LEAST(4,1) && !defined(__llvm__)
 #    define av_flatten __attribute__((flatten))
 #else
 #    define av_flatten

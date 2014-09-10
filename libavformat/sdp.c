@@ -189,7 +189,7 @@ static char *extradata2psets(AVCodecContext *c)
     }
 
     psets = av_mallocz(MAX_PSET_SIZE);
-    if (psets == NULL) {
+    if (!psets) {
         av_log(c, AV_LOG_ERROR, "Cannot allocate memory for the parameter sets.\n");
         av_free(orig_extradata);
         return NULL;
@@ -216,8 +216,8 @@ static char *extradata2psets(AVCodecContext *c)
             sps = r;
             sps_end = r1;
         }
-        if (av_base64_encode(p, MAX_PSET_SIZE - (p - psets), r, r1 - r) == NULL) {
-            av_log(c, AV_LOG_ERROR, "Cannot Base64-encode %td %td!\n", MAX_PSET_SIZE - (p - psets), r1 - r);
+        if (!av_base64_encode(p, MAX_PSET_SIZE - (p - psets), r, r1 - r)) {
+            av_log(c, AV_LOG_ERROR, "Cannot Base64-encode %"PTRDIFF_SPECIFIER" %"PTRDIFF_SPECIFIER"!\n", MAX_PSET_SIZE - (p - psets), r1 - r);
             av_free(psets);
 
             return NULL;
@@ -250,7 +250,7 @@ static char *extradata2config(AVCodecContext *c)
         return NULL;
     }
     config = av_malloc(10 + c->extradata_size * 2);
-    if (config == NULL) {
+    if (!config) {
         av_log(c, AV_LOG_ERROR, "Cannot allocate memory for the config info.\n");
         return NULL;
     }
@@ -402,7 +402,7 @@ static char *sdp_write_media_attributes(char *buff, int size, AVCodecContext *c,
     switch (c->codec_id) {
         case AV_CODEC_ID_H264: {
             int mode = 1;
-            if (fmt && fmt->oformat->priv_class &&
+            if (fmt && fmt->oformat && fmt->oformat->priv_class &&
                 av_opt_flag_is_set(fmt->priv_data, "rtpflags", "h264_mode0"))
                 mode = 0;
             if (c->extradata_size) {
@@ -457,7 +457,7 @@ static char *sdp_write_media_attributes(char *buff, int size, AVCodecContext *c,
                     av_log(c, AV_LOG_ERROR, "AAC with no global headers is currently not supported.\n");
                     return NULL;
                 }
-                if (config == NULL) {
+                if (!config) {
                     return NULL;
                 }
                 av_strlcatf(buff, size, "a=rtpmap:%d MPEG4-GENERIC/%d/%d\r\n"
@@ -513,13 +513,6 @@ static char *sdp_write_media_attributes(char *buff, int size, AVCodecContext *c,
             break;
         case AV_CODEC_ID_THEORA: {
             const char *pix_fmt;
-            if (c->extradata_size)
-                config = xiph_extradata2config(c);
-            else
-                av_log(c, AV_LOG_ERROR, "Theora configuation info missing\n");
-            if (!config)
-                return NULL;
-
             switch (c->pix_fmt) {
             case AV_PIX_FMT_YUV420P:
                 pix_fmt = "YCbCr-4:2:0";
@@ -534,6 +527,13 @@ static char *sdp_write_media_attributes(char *buff, int size, AVCodecContext *c,
                 av_log(c, AV_LOG_ERROR, "Unsupported pixel format.\n");
                 return NULL;
             }
+
+            if (c->extradata_size)
+                config = xiph_extradata2config(c);
+            else
+                av_log(c, AV_LOG_ERROR, "Theora configuation info missing\n");
+            if (!config)
+                return NULL;
 
             av_strlcatf(buff, size, "a=rtpmap:%d theora/90000\r\n"
                                     "a=fmtp:%d delivery-method=inline; "

@@ -462,7 +462,7 @@ static void qdm2_decode_sub_packet_header(GetBitContext *gb,
 static QDM2SubPNode *qdm2_search_subpacket_type_in_list(QDM2SubPNode *list,
                                                         int type)
 {
-    while (list != NULL && list->packet != NULL) {
+    while (list && list->packet) {
         if (list->packet->type == type)
             return list;
         list = list->next;
@@ -1248,23 +1248,23 @@ static void process_synthesis_subpackets(QDM2Context *q, QDM2SubPNode *list)
     QDM2SubPNode *nodes[4];
 
     nodes[0] = qdm2_search_subpacket_type_in_list(list, 9);
-    if (nodes[0] != NULL)
+    if (nodes[0])
         process_subpacket_9(q, nodes[0]);
 
     nodes[1] = qdm2_search_subpacket_type_in_list(list, 10);
-    if (nodes[1] != NULL)
+    if (nodes[1])
         process_subpacket_10(q, nodes[1]);
     else
         process_subpacket_10(q, NULL);
 
     nodes[2] = qdm2_search_subpacket_type_in_list(list, 11);
-    if (nodes[0] != NULL && nodes[1] != NULL && nodes[2] != NULL)
+    if (nodes[0] && nodes[1] && nodes[2])
         process_subpacket_11(q, nodes[2]);
     else
         process_subpacket_11(q, NULL);
 
     nodes[3] = qdm2_search_subpacket_type_in_list(list, 12);
-    if (nodes[0] != NULL && nodes[1] != NULL && nodes[3] != NULL)
+    if (nodes[0] && nodes[1] && nodes[3])
         process_subpacket_12(q, nodes[3]);
     else
         process_subpacket_12(q, NULL);
@@ -1389,7 +1389,7 @@ static void qdm2_decode_super_block(QDM2Context *q)
         }
     } // Packet bytes loop
 
-    if (q->sub_packet_list_D[0].packet != NULL) {
+    if (q->sub_packet_list_D[0].packet) {
         process_synthesis_subpackets(q, q->sub_packet_list_D);
         q->do_synth_filter = 1;
     } else if (q->do_synth_filter) {
@@ -1506,7 +1506,7 @@ static void qdm2_decode_fft_packets(QDM2Context *q)
     int i, j, min, max, value, type, unknown_flag;
     GetBitContext gb;
 
-    if (q->sub_packet_list_B[0].packet == NULL)
+    if (!q->sub_packet_list_B[0].packet)
         return;
 
     /* reset minimum indexes for FFT coefficients */
@@ -1750,12 +1750,19 @@ static void qdm2_synthesis_filter(QDM2Context *q, int index)
  *
  * @param q    context
  */
-static av_cold void qdm2_init_static_data(AVCodec *codec) {
+static av_cold void qdm2_init_static_data(void) {
+    static int done;
+
+    if(done)
+        return;
+
     qdm2_init_vlc();
     ff_mpa_synth_init_float(ff_mpa_synth_window_float);
     softclip_table_init();
     rnd_table_init();
     init_noise_samples();
+
+    done = 1;
 }
 
 /**
@@ -1767,6 +1774,8 @@ static av_cold int qdm2_decode_init(AVCodecContext *avctx)
     uint8_t *extradata;
     int extradata_size;
     int tmp_val, tmp, size;
+
+    qdm2_init_static_data();
 
     /* extradata parsing
 
@@ -1978,7 +1987,7 @@ static int qdm2_decode(QDM2Context *q, const uint8_t *in, int16_t *out)
     for (ch = 0; ch < q->channels; ch++) {
         qdm2_calculate_fft(q, ch, q->sub_packet);
 
-        if (!q->has_errors && q->sub_packet_list_C[0].packet != NULL) {
+        if (!q->has_errors && q->sub_packet_list_C[0].packet) {
             SAMPLES_NEEDED_2("has errors, and C list is not empty")
             return -1;
         }
@@ -2039,13 +2048,12 @@ static int qdm2_decode_frame(AVCodecContext *avctx, void *data,
 
 AVCodec ff_qdm2_decoder = {
     .name             = "qdm2",
+    .long_name        = NULL_IF_CONFIG_SMALL("QDesign Music Codec 2"),
     .type             = AVMEDIA_TYPE_AUDIO,
     .id               = AV_CODEC_ID_QDM2,
     .priv_data_size   = sizeof(QDM2Context),
     .init             = qdm2_decode_init,
-    .init_static_data = qdm2_init_static_data,
     .close            = qdm2_decode_close,
     .decode           = qdm2_decode_frame,
     .capabilities     = CODEC_CAP_DR1,
-    .long_name        = NULL_IF_CONFIG_SMALL("QDesign Music Codec 2"),
 };

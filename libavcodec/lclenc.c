@@ -135,6 +135,13 @@ static av_cold int encode_init(AVCodecContext *avctx)
     if (!avctx->extradata)
         return AVERROR(ENOMEM);
 
+    avctx->coded_frame = av_frame_alloc();
+    if (!avctx->coded_frame)
+        return AVERROR(ENOMEM);
+
+    avctx->coded_frame->pict_type = AV_PICTURE_TYPE_I;
+    avctx->coded_frame->key_frame = 1;
+
     c->compression = avctx->compression_level == FF_COMPRESSION_DEFAULT ?
                             COMP_ZLIB_NORMAL :
                             av_clip(avctx->compression_level, 0, 9);
@@ -176,17 +183,20 @@ static av_cold int encode_end(AVCodecContext *avctx)
     av_freep(&avctx->extradata);
     deflateEnd(&c->zstream);
 
+    av_frame_free(&avctx->coded_frame);
+
     return 0;
 }
 
 AVCodec ff_zlib_encoder = {
     .name           = "zlib",
+    .long_name      = NULL_IF_CONFIG_SMALL("LCL (LossLess Codec Library) ZLIB"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_ZLIB,
     .priv_data_size = sizeof(LclEncContext),
     .init           = encode_init,
     .encode2        = encode_frame,
     .close          = encode_end,
+    .capabilities   = CODEC_CAP_FRAME_THREADS | CODEC_CAP_INTRA_ONLY,
     .pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_BGR24, AV_PIX_FMT_NONE },
-    .long_name      = NULL_IF_CONFIG_SMALL("LCL (LossLess Codec Library) ZLIB"),
 };

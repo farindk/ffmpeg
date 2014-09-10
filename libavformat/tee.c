@@ -102,10 +102,10 @@ fail:
 static int parse_bsfs(void *log_ctx, const char *bsfs_spec,
                       AVBitStreamFilterContext **bsfs)
 {
-    char *bsf_name, *buf, *saveptr;
+    char *bsf_name, *buf, *dup, *saveptr;
     int ret = 0;
 
-    if (!(buf = av_strdup(bsfs_spec)))
+    if (!(dup = buf = av_strdup(bsfs_spec)))
         return AVERROR(ENOMEM);
 
     while (bsf_name = av_strtok(buf, ",", &saveptr)) {
@@ -128,7 +128,7 @@ static int parse_bsfs(void *log_ctx, const char *bsfs_spec,
     }
 
 end:
-    av_free(buf);
+    av_free(dup);
     return ret;
 }
 
@@ -280,6 +280,7 @@ static int open_slave(AVFormatContext *avf, char *slave, TeeSlave *tee_slave)
 
 end:
     av_free(format);
+    av_free(select);
     av_dict_free(&options);
     return ret;
 }
@@ -302,6 +303,7 @@ static void close_slaves(AVFormatContext *avf)
             }
         }
         av_freep(&tee->slaves[i].stream_map);
+        av_freep(&tee->slaves[i].bsfs);
 
         avio_close(avf2->pb);
         avf2->pb = NULL;
@@ -408,16 +410,15 @@ static int filter_packet(void *log_ctx, AVPacket *pkt,
             if (!new_pkt.buf)
                 break;
         }
+        if (ret < 0) {
+            av_log(log_ctx, AV_LOG_ERROR,
+                "Failed to filter bitstream with filter %s for stream %d in file '%s' with codec %s\n",
+                bsf_ctx->filter->name, pkt->stream_index, fmt_ctx->filename,
+                avcodec_get_name(enc_ctx->codec_id));
+        }
         *pkt = new_pkt;
 
         bsf_ctx = bsf_ctx->next;
-    }
-
-    if (ret < 0) {
-        av_log(log_ctx, AV_LOG_ERROR,
-               "Failed to filter bitstream with filter %s for stream %d in file '%s' with codec %s\n",
-               bsf_ctx->filter->name, pkt->stream_index, fmt_ctx->filename,
-               avcodec_get_name(enc_ctx->codec_id));
     }
 
     return ret;
@@ -466,7 +467,7 @@ static int tee_write_packet(AVFormatContext *avf, AVPacket *pkt)
         if ((ret = av_copy_packet(&pkt2, pkt)) < 0 ||
             (ret = av_dup_packet(&pkt2))< 0)
             if (!ret_all) {
-                ret = ret_all;
+                ret_all = ret;
                 continue;
             }
         tb  = avf ->streams[s ]->time_base;

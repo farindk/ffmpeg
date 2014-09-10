@@ -27,16 +27,18 @@
 #include "libavutil/common.h"
 #include "config.h"
 
+#define MAX_NEG_CROP 1024
+
 extern const uint32_t ff_inverse[257];
 extern const uint8_t  ff_reverse[256];
 extern const uint8_t ff_sqrt_tab[256];
+extern const uint8_t ff_crop_tab[256 + 2 * MAX_NEG_CROP];
+extern const uint8_t ff_zigzag_direct[64];
 
 #if   ARCH_ARM
 #   include "arm/mathops.h"
 #elif ARCH_AVR32
 #   include "avr32/mathops.h"
-#elif ARCH_BFIN
-#   include "bfin/mathops.h"
 #elif ARCH_MIPS
 #   include "mips/mathops.h"
 #elif ARCH_PPC
@@ -195,15 +197,6 @@ if ((y) < (x)) {\
 #   define FASTDIV(a,b) ((uint32_t)((((uint64_t)a) * ff_inverse[b]) >> 32))
 #endif /* FASTDIV */
 
-#ifndef MOD_UNLIKELY
-#   define MOD_UNLIKELY(modulus, dividend, divisor, prev_dividend) \
-    do { \
-        if ((prev_dividend) == 0 || (dividend) - (prev_dividend) != (divisor)) \
-            (modulus) = (dividend) % (divisor); \
-        (prev_dividend) = (dividend); \
-    } while (0)
-#endif
-
 static inline av_const unsigned int ff_sqrt(unsigned int a)
 {
     unsigned int b;
@@ -222,6 +215,16 @@ static inline av_const unsigned int ff_sqrt(unsigned int a)
     }
 
     return b - (a < b * b);
+}
+
+static inline int8_t ff_u8_to_s8(uint8_t a)
+{
+    union {
+        uint8_t u8;
+        int8_t  s8;
+    } b;
+    b.u8 = a;
+    return b.s8;
 }
 
 #endif /* AVCODEC_MATHOPS_H */

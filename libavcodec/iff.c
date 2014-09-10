@@ -25,6 +25,8 @@
  * IFF ACBM/DEEP/ILBM/PBM bitmap decoder
  */
 
+#include <stdint.h>
+
 #include "libavutil/imgutils.h"
 #include "bytestream.h"
 #include "avcodec.h"
@@ -184,7 +186,7 @@ static int cmap_read_palette(AVCodecContext *avctx, uint32_t *pal)
  *
  * @param avctx the AVCodecContext where to extract extra context to
  * @param avpkt the AVPacket to extract extra context from or NULL to use avctx
- * @return 0 in case of success, a negative error code otherwise
+ * @return >= 0 in case of success, a negative error code otherwise
  */
 static int extract_header(AVCodecContext *const avctx,
                           const AVPacket *const avpkt) {
@@ -318,6 +320,16 @@ static int extract_header(AVCodecContext *const avctx,
     return 0;
 }
 
+static av_cold int decode_end(AVCodecContext *avctx)
+{
+    IffContext *s = avctx->priv_data;
+    av_frame_free(&s->frame);
+    av_freep(&s->planebuf);
+    av_freep(&s->ham_buf);
+    av_freep(&s->ham_palbuf);
+    return 0;
+}
+
 static av_cold int decode_init(AVCodecContext *avctx)
 {
     IffContext *s = avctx->priv_data;
@@ -360,8 +372,10 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
     s->bpp = avctx->bits_per_coded_sample;
     s->frame = av_frame_alloc();
-    if (!s->frame)
+    if (!s->frame) {
+        decode_end(avctx);
         return AVERROR(ENOMEM);
+    }
 
     if ((err = extract_header(avctx, NULL)) < 0)
         return err;
@@ -474,16 +488,20 @@ static int decode_byterun(uint8_t *dst, int dst_size,
         unsigned length;
         const int8_t value = *buf++;
         if (value >= 0) {
-            length = value + 1;
-            memcpy(dst + x, buf, FFMIN3(length, dst_size - x, buf_end - buf));
+            length = FFMIN3(value + 1, dst_size - x, buf_end - buf);
+            memcpy(dst + x, buf, length);
             buf += length;
         } else if (value > -128) {
-            length = -value + 1;
-            memset(dst + x, *buf++, FFMIN(length, dst_size - x));
+            length = FFMIN(-value + 1, dst_size - x);
+            memset(dst + x, *buf++, length);
         } else { // noop
             continue;
         }
         x += length;
+    }
+    if (x < dst_size) {
+        av_log(NULL, AV_LOG_WARNING, "decode_byterun ended before plane size\n");
+        memset(dst+x, 0, dst_size - x);
     }
     return buf - buf_start;
 }
@@ -659,11 +677,15 @@ static int decode_frame(AVCodecContext *avctx,
     const uint8_t *buf_end = buf + buf_size;
     int y, plane, res;
     GetByteContext gb;
+    const AVPixFmtDescriptor *desc;
 
     if ((res = extract_header(avctx, avpkt)) < 0)
         return res;
     if ((res = ff_reget_buffer(avctx, s->frame)) < 0)
         return res;
+
+    desc = av_pix_fmt_desc_get(avctx->pix_fmt);
+
     if (!s->init && avctx->bits_per_coded_sample <= 8 &&
         avctx->pix_fmt == AV_PIX_FMT_PAL8) {
         if ((res = cmap_read_palette(avctx, (uint32_t *)s->frame->data[1])) < 0)
@@ -703,7 +725,6 @@ static int decode_frame(AVCodecContext *avctx,
             } else
                 return unsupported(avctx);
         } else if (avctx->codec_tag == MKTAG('D', 'E', 'E', 'P')) {
-            const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(avctx->pix_fmt);
             int raw_width = avctx->width * (av_get_bits_per_pixel(desc) >> 3);
             int x;
             for (y = 0; y < avctx->height && buf < buf_end; y++) {
@@ -820,7 +841,6 @@ static int decode_frame(AVCodecContext *avctx,
             } else
                 return unsupported(avctx);
         } else if (avctx->codec_tag == MKTAG('D', 'E', 'E', 'P')) { // IFF-DEEP
-            const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(avctx->pix_fmt);
             if (av_get_bits_per_pixel(desc) == 32)
                 decode_deep_rle32(s->frame->data[0], buf, buf_size, avctx->width, avctx->height, s->frame->linesize[0]);
             else
@@ -829,16 +849,15 @@ static int decode_frame(AVCodecContext *avctx,
         break;
     case 4:
         bytestream2_init(&gb, buf, buf_size);
-        if (avctx->codec_tag == MKTAG('R', 'G', 'B', '8'))
+        if (avctx->codec_tag == MKTAG('R', 'G', 'B', '8') && avctx->pix_fmt == AV_PIX_FMT_RGB32)
             decode_rgb8(&gb, s->frame->data[0], avctx->width, avctx->height, s->frame->linesize[0]);
-        else if (avctx->codec_tag == MKTAG('R', 'G', 'B', 'N'))
+        else if (avctx->codec_tag == MKTAG('R', 'G', 'B', 'N') && avctx->pix_fmt == AV_PIX_FMT_RGB444)
             decode_rgbn(&gb, s->frame->data[0], avctx->width, avctx->height, s->frame->linesize[0]);
         else
             return unsupported(avctx);
         break;
     case 5:
         if (avctx->codec_tag == MKTAG('D', 'E', 'E', 'P')) {
-            const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(avctx->pix_fmt);
             if (av_get_bits_per_pixel(desc) == 32)
                 decode_deep_tvdc32(s->frame->data[0], buf, buf_size, avctx->width, avctx->height, s->frame->linesize[0], s->tvdc);
             else
@@ -858,19 +877,10 @@ static int decode_frame(AVCodecContext *avctx,
     return buf_size;
 }
 
-static av_cold int decode_end(AVCodecContext *avctx)
-{
-    IffContext *s = avctx->priv_data;
-    av_frame_free(&s->frame);
-    av_freep(&s->planebuf);
-    av_freep(&s->ham_buf);
-    av_freep(&s->ham_palbuf);
-    return 0;
-}
-
 #if CONFIG_IFF_ILBM_DECODER
 AVCodec ff_iff_ilbm_decoder = {
     .name           = "iff",
+    .long_name      = NULL_IF_CONFIG_SMALL("IFF"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_IFF_ILBM,
     .priv_data_size = sizeof(IffContext),
@@ -878,12 +888,12 @@ AVCodec ff_iff_ilbm_decoder = {
     .close          = decode_end,
     .decode         = decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("IFF"),
 };
 #endif
 #if CONFIG_IFF_BYTERUN1_DECODER
 AVCodec ff_iff_byterun1_decoder = {
     .name           = "iff",
+    .long_name      = NULL_IF_CONFIG_SMALL("IFF"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_IFF_BYTERUN1,
     .priv_data_size = sizeof(IffContext),
@@ -891,6 +901,5 @@ AVCodec ff_iff_byterun1_decoder = {
     .close          = decode_end,
     .decode         = decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("IFF"),
 };
 #endif

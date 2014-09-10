@@ -1,5 +1,4 @@
 /*
- *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -180,10 +179,7 @@ static int request_frame(AVFilterLink *outlink)
     /* flush the lavr delay buffer */
     if (ret == AVERROR_EOF && s->avr) {
         AVFrame *frame;
-        int nb_samples = av_rescale_rnd(avresample_get_delay(s->avr),
-                                        outlink->sample_rate,
-                                        ctx->inputs[0]->sample_rate,
-                                        AV_ROUND_UP);
+        int nb_samples = avresample_get_out_samples(s->avr, 0);
 
         if (!nb_samples)
             return ret;
@@ -219,9 +215,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
         /* maximum possible samples lavr can output */
         delay      = avresample_get_delay(s->avr);
-        nb_samples = av_rescale_rnd(in->nb_samples + delay,
-                                    outlink->sample_rate, inlink->sample_rate,
-                                    AV_ROUND_UP);
+        nb_samples = avresample_get_out_samples(s->avr, in->nb_samples);
 
         out = ff_get_audio_buffer(outlink, nb_samples);
         if (!out) {
@@ -252,6 +246,14 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
         if (ret > 0) {
             out->nb_samples = ret;
+
+            ret = av_frame_copy_props(out, in);
+            if (ret < 0) {
+                av_frame_free(&out);
+                goto fail;
+            }
+
+            out->sample_rate = outlink->sample_rate;
             if (in->pts != AV_NOPTS_VALUE) {
                 out->pts = av_rescale_q(in->pts, inlink->time_base,
                                             outlink->time_base) -
@@ -298,9 +300,9 @@ static const AVClass resample_class = {
 
 static const AVFilterPad avfilter_af_resample_inputs[] = {
     {
-        .name           = "default",
-        .type           = AVMEDIA_TYPE_AUDIO,
-        .filter_frame   = filter_frame,
+        .name          = "default",
+        .type          = AVMEDIA_TYPE_AUDIO,
+        .filter_frame  = filter_frame,
     },
     { NULL }
 };
@@ -315,16 +317,14 @@ static const AVFilterPad avfilter_af_resample_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_resample = {
+AVFilter ff_af_resample = {
     .name          = "resample",
     .description   = NULL_IF_CONFIG_SMALL("Audio resampling and conversion."),
     .priv_size     = sizeof(ResampleContext),
     .priv_class    = &resample_class,
-
-    .init_dict      = init,
-    .uninit         = uninit,
-    .query_formats  = query_formats,
-
-    .inputs    = avfilter_af_resample_inputs,
-    .outputs   = avfilter_af_resample_outputs,
+    .init_dict     = init,
+    .uninit        = uninit,
+    .query_formats = query_formats,
+    .inputs        = avfilter_af_resample_inputs,
+    .outputs       = avfilter_af_resample_outputs,
 };

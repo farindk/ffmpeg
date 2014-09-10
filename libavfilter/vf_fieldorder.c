@@ -23,7 +23,6 @@
  * video field order filter, heavily influenced by vf_pad.c
  */
 
-#include "libavutil/opt.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
@@ -33,7 +32,7 @@
 #include "internal.h"
 #include "video.h"
 
-typedef struct {
+typedef struct FieldOrderContext {
     const AVClass *class;
     int dst_tff;               ///< output bff/tff
     int          line_size[4]; ///< bytes of pixel data per line for each plane
@@ -48,9 +47,10 @@ static int query_formats(AVFilterContext *ctx)
     /** accept any input pixel format that is not hardware accelerated, not
      *  a bitstream format, and does not have vertically sub-sampled chroma */
     if (ctx->inputs[0]) {
+        const AVPixFmtDescriptor *desc = NULL;
         formats = NULL;
-        for (pix_fmt = 0; pix_fmt < AV_PIX_FMT_NB; pix_fmt++) {
-            const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
+        while ((desc = av_pix_fmt_desc_next(desc))) {
+            pix_fmt = av_pix_fmt_desc_get_id(desc);
             if (!(desc->flags & AV_PIX_FMT_FLAG_HWACCEL ||
                   desc->flags & AV_PIX_FMT_FLAG_PAL     ||
                   desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) &&
@@ -85,8 +85,13 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
     AVFrame *out;
 
     if (!frame->interlaced_frame ||
-        frame->top_field_first == s->dst_tff)
+        frame->top_field_first == s->dst_tff) {
+        av_log(ctx, AV_LOG_VERBOSE,
+               "Skipping %s.\n",
+               frame->interlaced_frame ?
+               "frame with same field order" : "progressive frame");
         return ff_filter_frame(outlink, frame);
+    }
 
     if (av_frame_is_writable(frame)) {
         out = frame;
@@ -157,17 +162,17 @@ static const AVOption fieldorder_options[] = {
     { "order", "output field order", OFFSET(dst_tff), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, FLAGS, "order" },
         { "bff", "bottom field first", 0, AV_OPT_TYPE_CONST, { .i64 = 0 }, .flags=FLAGS, .unit = "order" },
         { "tff", "top field first",    0, AV_OPT_TYPE_CONST, { .i64 = 1 }, .flags=FLAGS, .unit = "order" },
-    { NULL },
+    { NULL }
 };
 
 AVFILTER_DEFINE_CLASS(fieldorder);
 
 static const AVFilterPad avfilter_vf_fieldorder_inputs[] = {
     {
-        .name             = "default",
-        .type             = AVMEDIA_TYPE_VIDEO,
-        .config_props     = config_input,
-        .filter_frame     = filter_frame,
+        .name         = "default",
+        .type         = AVMEDIA_TYPE_VIDEO,
+        .config_props = config_input,
+        .filter_frame = filter_frame,
     },
     { NULL }
 };
@@ -180,7 +185,7 @@ static const AVFilterPad avfilter_vf_fieldorder_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_fieldorder = {
+AVFilter ff_vf_fieldorder = {
     .name          = "fieldorder",
     .description   = NULL_IF_CONFIG_SMALL("Set the field order."),
     .priv_size     = sizeof(FieldOrderContext),

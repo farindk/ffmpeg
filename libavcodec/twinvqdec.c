@@ -251,7 +251,7 @@ static void read_cb_data(TwinVQContext *tctx, GetBitContext *gb,
 static int twinvq_read_bitstream(AVCodecContext *avctx, TwinVQContext *tctx,
                                  const uint8_t *buf, int buf_size)
 {
-    TwinVQFrameData     *bits = &tctx->bits;
+    TwinVQFrameData     *bits = &tctx->bits[0];
     const TwinVQModeTab *mtab = tctx->mtab;
     int channels              = tctx->avctx->channels;
     int sub;
@@ -268,7 +268,7 @@ static int twinvq_read_bitstream(AVCodecContext *avctx, TwinVQContext *tctx,
         return AVERROR_INVALIDDATA;
     }
 
-    bits->ftype = ff_twinvq_wtype_to_ftype_table[tctx->bits.window_type];
+    bits->ftype = ff_twinvq_wtype_to_ftype_table[tctx->bits[0].window_type];
 
     sub = mtab->fmode[bits->ftype].sub;
 
@@ -312,7 +312,7 @@ static int twinvq_read_bitstream(AVCodecContext *avctx, TwinVQContext *tctx,
         }
     }
 
-    return 0;
+    return (get_bits_count(&gb) + 7) / 8;
 }
 
 static av_cold int twinvq_decode_init(AVCodecContext *avctx)
@@ -356,9 +356,8 @@ static av_cold int twinvq_decode_init(AVCodecContext *avctx)
                                                  : AV_CH_LAYOUT_STEREO;
 
     ibps = avctx->bit_rate / (1000 * avctx->channels);
-
-    if (ibps > 255U) {
-        av_log(avctx, AV_LOG_ERROR, "unsupported per channel bitrate %dkbps\n", ibps);
+    if (ibps < 8 || ibps > 48) {
+        av_log(avctx, AV_LOG_ERROR, "Bad bitrate per channel value %d\n", ibps);
         return AVERROR_INVALIDDATA;
     }
 
@@ -397,19 +396,25 @@ static av_cold int twinvq_decode_init(AVCodecContext *avctx)
         return -1;
     }
 
-    avctx->block_align = (avctx->bit_rate * tctx->mtab->size
-                                          / avctx->sample_rate + 15) / 8;
-
     tctx->codec          = TWINVQ_CODEC_VQF;
     tctx->read_bitstream = twinvq_read_bitstream;
     tctx->dec_bark_env   = dec_bark_env;
     tctx->decode_ppc     = decode_ppc;
+    tctx->frame_size     = avctx->bit_rate * tctx->mtab->size
+                                           / avctx->sample_rate + 8;
+    tctx->is_6kbps       = 0;
+    if (avctx->block_align && avctx->block_align * 8 / tctx->frame_size > 1) {
+        av_log(avctx, AV_LOG_ERROR,
+               "VQF TwinVQ should have only one frame per packet\n");
+        return AVERROR_INVALIDDATA;
+    }
 
     return ff_twinvq_decode_init(avctx);
 }
 
 AVCodec ff_twinvq_decoder = {
     .name           = "twinvq",
+    .long_name      = NULL_IF_CONFIG_SMALL("VQF TwinVQ"),
     .type           = AVMEDIA_TYPE_AUDIO,
     .id             = AV_CODEC_ID_TWINVQ,
     .priv_data_size = sizeof(TwinVQContext),
@@ -417,7 +422,6 @@ AVCodec ff_twinvq_decoder = {
     .close          = ff_twinvq_decode_close,
     .decode         = ff_twinvq_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("VQF TwinVQ"),
     .sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_FLTP,
                                                       AV_SAMPLE_FMT_NONE },
 };

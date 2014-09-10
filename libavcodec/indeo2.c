@@ -49,7 +49,7 @@ static inline int ir2_get_code(GetBitContext *gb)
 }
 
 static int ir2_decode_plane(Ir2Context *ctx, int width, int height, uint8_t *dst,
-                            int stride, const uint8_t *table)
+                            int pitch, const uint8_t *table)
 {
     int i;
     int j;
@@ -74,7 +74,7 @@ static int ir2_decode_plane(Ir2Context *ctx, int width, int height, uint8_t *dst
             dst[out++] = table[(c * 2) + 1];
         }
     }
-    dst += stride;
+    dst += pitch;
 
     for (j = 1; j < height; j++) {
         out = 0;
@@ -85,27 +85,27 @@ static int ir2_decode_plane(Ir2Context *ctx, int width, int height, uint8_t *dst
                 if (out + c*2 > width)
                     return AVERROR_INVALIDDATA;
                 for (i = 0; i < c * 2; i++) {
-                    dst[out] = dst[out - stride];
+                    dst[out] = dst[out - pitch];
                     out++;
                 }
             } else { /* add two deltas from table */
-                t        = dst[out - stride] + (table[c * 2] - 128);
+                t        = dst[out - pitch] + (table[c * 2] - 128);
                 t        = av_clip_uint8(t);
                 dst[out] = t;
                 out++;
-                t        = dst[out - stride] + (table[(c * 2) + 1] - 128);
+                t        = dst[out - pitch] + (table[(c * 2) + 1] - 128);
                 t        = av_clip_uint8(t);
                 dst[out] = t;
                 out++;
             }
         }
-        dst += stride;
+        dst += pitch;
     }
     return 0;
 }
 
 static int ir2_decode_plane_inter(Ir2Context *ctx, int width, int height, uint8_t *dst,
-                                  int stride, const uint8_t *table)
+                                  int pitch, const uint8_t *table)
 {
     int j;
     int out = 0;
@@ -133,7 +133,7 @@ static int ir2_decode_plane_inter(Ir2Context *ctx, int width, int height, uint8_
                 out++;
             }
         }
-        dst += stride;
+        dst += pitch;
     }
     return 0;
 }
@@ -171,36 +171,36 @@ static int ir2_decode_frame(AVCodecContext *avctx,
 
     if (s->decode_delta) { /* intraframe */
         if ((ret = ir2_decode_plane(s, avctx->width, avctx->height,
-                                    s->picture->data[0], s->picture->linesize[0],
+                                    p->data[0], p->linesize[0],
                                     ir2_luma_table)) < 0)
             return ret;
 
         /* swapped U and V */
         if ((ret = ir2_decode_plane(s, avctx->width >> 2, avctx->height >> 2,
-                                    s->picture->data[2], s->picture->linesize[2],
+                                    p->data[2], p->linesize[2],
                                     ir2_luma_table)) < 0)
             return ret;
         if ((ret = ir2_decode_plane(s, avctx->width >> 2, avctx->height >> 2,
-                                    s->picture->data[1], s->picture->linesize[1],
+                                    p->data[1], p->linesize[1],
                                     ir2_luma_table)) < 0)
             return ret;
     } else { /* interframe */
         if ((ret = ir2_decode_plane_inter(s, avctx->width, avctx->height,
-                                          s->picture->data[0], s->picture->linesize[0],
+                                          p->data[0], p->linesize[0],
                                           ir2_luma_table)) < 0)
             return ret;
         /* swapped U and V */
         if ((ret = ir2_decode_plane_inter(s, avctx->width >> 2, avctx->height >> 2,
-                                          s->picture->data[2], s->picture->linesize[2],
+                                          p->data[2], p->linesize[2],
                                           ir2_luma_table)) < 0)
             return ret;
         if ((ret = ir2_decode_plane_inter(s, avctx->width >> 2, avctx->height >> 2,
-                                          s->picture->data[1], s->picture->linesize[1],
+                                          p->data[1], p->linesize[1],
                                           ir2_luma_table)) < 0)
             return ret;
     }
 
-    if ((ret = av_frame_ref(picture, s->picture)) < 0)
+    if ((ret = av_frame_ref(picture, p)) < 0)
         return ret;
 
     *got_frame = 1;
@@ -247,6 +247,7 @@ static av_cold int ir2_decode_end(AVCodecContext *avctx)
 
 AVCodec ff_indeo2_decoder = {
     .name           = "indeo2",
+    .long_name      = NULL_IF_CONFIG_SMALL("Intel Indeo 2"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_INDEO2,
     .priv_data_size = sizeof(Ir2Context),
@@ -254,5 +255,4 @@ AVCodec ff_indeo2_decoder = {
     .close          = ir2_decode_end,
     .decode         = ir2_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("Intel Indeo 2"),
 };

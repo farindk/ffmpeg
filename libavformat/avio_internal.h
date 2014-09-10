@@ -78,7 +78,7 @@ static av_always_inline void ffio_wfourcc(AVIOContext *pb, const uint8_t *s)
  * @param s The read-only AVIOContext to rewind
  * @param buf The probe buffer containing the first buf_size bytes of the file
  * @param buf_size The size of buf
- * @return 0 in case of success, a negative value corresponding to an
+ * @return >= 0 in case of success, a negative value corresponding to an
  * AVERROR code in case of failure
  */
 int ffio_rewind_with_probe_data(AVIOContext *s, unsigned char **buf, int buf_size);
@@ -93,9 +93,9 @@ int ffio_set_buf_size(AVIOContext *s, int buf_size);
  *
  * Will ensure that when reading sequentially up to buf_size, seeking
  * within the current pos and pos+buf_size is possible.
- * Once the stream position moves outside this window this gurantee is lost.
+ * Once the stream position moves outside this window this guarantee is lost.
  */
-int ffio_ensure_seekback(AVIOContext *s, int buf_size);
+int ffio_ensure_seekback(AVIOContext *s, int64_t buf_size);
 
 int ffio_limit(AVIOContext *s, int size);
 
@@ -105,6 +105,8 @@ void ffio_init_checksum(AVIOContext *s,
 unsigned long ffio_get_checksum(AVIOContext *s);
 unsigned long ff_crc04C11DB7_update(unsigned long checksum, const uint8_t *buf,
                                     unsigned int len);
+unsigned long ff_crcA001_update(unsigned long checksum, const uint8_t *buf,
+                                unsigned int len);
 
 /**
  * Open a write only packetized memory stream with a maximum packet
@@ -125,9 +127,27 @@ int ffio_open_dyn_packet_buf(AVIOContext **s, int max_packet_size);
  *
  * @param s Used to return the pointer to the created AVIOContext.
  * In case of failure the pointed to value is set to NULL.
- * @return 0 in case of success, a negative value corresponding to an
+ * @return >= 0 in case of success, a negative value corresponding to an
  * AVERROR code in case of failure
  */
 int ffio_fdopen(AVIOContext **s, URLContext *h);
+
+/**
+ * Open a write-only fake memory stream. The written data is not stored
+ * anywhere - this is only used for measuring the amount of data
+ * written.
+ *
+ * @param s new IO context
+ * @return zero if no error.
+ */
+int ffio_open_null_buf(AVIOContext **s);
+
+/**
+ * Close a null buffer.
+ *
+ * @param s an IO context opened by ffio_open_null_buf
+ * @return the number of bytes written to the null buffer
+ */
+int ffio_close_null_buf(AVIOContext *s);
 
 #endif /* AVFORMAT_AVIO_INTERNAL_H */

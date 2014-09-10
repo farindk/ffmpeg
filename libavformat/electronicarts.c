@@ -1,5 +1,5 @@
 /* Electronic Arts Multimedia File Demuxer
- * Copyright (c) 2004  The ffmpeg Project
+ * Copyright (c) 2004 The FFmpeg Project
  * Copyright (c) 2006-2008 Peter Ross
  *
  * This file is part of FFmpeg.
@@ -24,6 +24,8 @@
  * Electronic Arts Multimedia file demuxer (WVE/UV2/etc.)
  * by Robin Kay (komadori at gekkou.co.uk)
  */
+
+#include <inttypes.h>
 
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
@@ -107,7 +109,7 @@ static int process_audio_header_elements(AVFormatContext *s)
     ea->sample_rate  = -1;
     ea->num_channels = 1;
 
-    while (!url_feof(pb) && in_header) {
+    while (!avio_feof(pb) && in_header) {
         int in_subheader;
         uint8_t byte;
         byte = avio_r8(pb);
@@ -116,7 +118,7 @@ static int process_audio_header_elements(AVFormatContext *s)
         case 0xFD:
             av_log(s, AV_LOG_DEBUG, "entered audio subheader\n");
             in_subheader = 1;
-            while (!url_feof(pb) && in_subheader) {
+            while (!avio_feof(pb) && in_subheader) {
                 uint8_t subbyte;
                 subbyte = avio_r8(pb);
 
@@ -152,7 +154,7 @@ static int process_audio_header_elements(AVFormatContext *s)
                     break;
                 case 0x8A:
                     av_log(s, AV_LOG_DEBUG,
-                           "element 0x%02x set to 0x%08x\n",
+                           "element 0x%02x set to 0x%08"PRIx32"\n",
                            subbyte, read_arbitrary(pb));
                     av_log(s, AV_LOG_DEBUG, "exited audio subheader\n");
                     in_subheader = 0;
@@ -171,7 +173,7 @@ static int process_audio_header_elements(AVFormatContext *s)
                     break;
                 default:
                     av_log(s, AV_LOG_DEBUG,
-                           "element 0x%02x set to 0x%08x\n",
+                           "element 0x%02x set to 0x%08"PRIx32"\n",
                            subbyte, read_arbitrary(pb));
                     break;
                 }
@@ -183,7 +185,7 @@ static int process_audio_header_elements(AVFormatContext *s)
             break;
         default:
             av_log(s, AV_LOG_DEBUG,
-                   "header element 0x%02x set to 0x%08x\n",
+                   "header element 0x%02x set to 0x%08"PRIx32"\n",
                    byte, read_arbitrary(pb));
             break;
         }
@@ -351,15 +353,20 @@ static int process_ea_header(AVFormatContext *s)
     int i;
 
     for (i = 0; i < 5 && (!ea->audio_codec || !ea->video_codec); i++) {
-        unsigned int startpos = avio_tell(pb);
+        uint64_t startpos     = avio_tell(pb);
         int err               = 0;
 
         blockid = avio_rl32(pb);
         size    = avio_rl32(pb);
         if (i == 0)
-            ea->big_endian = size > 0x000FFFFF;
+            ea->big_endian = size > av_bswap32(size);
         if (ea->big_endian)
             size = av_bswap32(size);
+
+        if (size < 8) {
+            av_log(s, AV_LOG_ERROR, "chunk size too small\n");
+            return AVERROR_INVALIDDATA;
+        }
 
         switch (blockid) {
         case ISNh_TAG:
@@ -405,14 +412,18 @@ static int process_ea_header(AVFormatContext *s)
         case pQGT_TAG:
         case TGQs_TAG:
             ea->video_codec = AV_CODEC_ID_TGQ;
+            ea->time_base   = (AVRational) { 1, 15 };
             break;
 
         case pIQT_TAG:
             ea->video_codec = AV_CODEC_ID_TQI;
+            ea->time_base   = (AVRational) { 1, 15 };
             break;
 
         case MADk_TAG:
             ea->video_codec = AV_CODEC_ID_MAD;
+            avio_skip(pb, 6);
+            ea->time_base = (AVRational) { avio_rl16(pb), 1000 };
             break;
 
         case MVhd_TAG:
@@ -435,6 +446,8 @@ static int process_ea_header(AVFormatContext *s)
 
 static int ea_probe(AVProbeData *p)
 {
+    unsigned big_endian, size;
+
     switch (AV_RL32(&p->buf[0])) {
     case ISNh_TAG:
     case SCHl_TAG:
@@ -449,7 +462,11 @@ static int ea_probe(AVProbeData *p)
     default:
         return 0;
     }
-    if (AV_RL32(&p->buf[4]) > 0xfffff && AV_RB32(&p->buf[4]) > 0xfffff)
+    size = AV_RL32(&p->buf[4]);
+    big_endian = size > 0x000FFFFF;
+    if (big_endian)
+        size = av_bswap32(size);
+    if (size > 0xfffff || size < 8)
         return 0;
 
     return AVPROBE_SCORE_MAX;
@@ -485,7 +502,7 @@ static int ea_read_header(AVFormatContext *s)
     }
 
     if (ea->audio_codec) {
-        if (ea->num_channels <= 0) {
+        if (ea->num_channels <= 0 || ea->num_channels > 2) {
             av_log(s, AV_LOG_WARNING,
                    "Unsupported number of channels: %d\n", ea->num_channels);
             ea->audio_codec = 0;
@@ -539,7 +556,7 @@ static int ea_read_packet(AVFormatContext *s, AVPacket *pkt)
     while (!packet_read || partial_packet) {
         chunk_type = avio_rl32(pb);
         chunk_size = ea->big_endian ? avio_rb32(pb) : avio_rl32(pb);
-        if (chunk_size <= 8)
+        if (chunk_size < 8)
             return AVERROR_INVALIDDATA;
         chunk_size -= 8;
 
@@ -564,11 +581,16 @@ static int ea_read_packet(AVFormatContext *s, AVPacket *pkt)
                 avio_skip(pb, 8);
                 chunk_size -= 12;
             }
+
             if (partial_packet) {
                 avpriv_request_sample(s, "video header followed by audio packet");
                 av_free_packet(pkt);
                 partial_packet = 0;
             }
+
+            if (!chunk_size)
+                continue;
+
             ret = av_get_packet(pb, pkt, chunk_size);
             if (ret < 0)
                 return ret;
@@ -579,12 +601,16 @@ static int ea_read_packet(AVFormatContext *s, AVPacket *pkt)
             case AV_CODEC_ID_ADPCM_EA_R1:
             case AV_CODEC_ID_ADPCM_EA_R2:
             case AV_CODEC_ID_ADPCM_IMA_EA_EACS:
-                if (pkt->size >= 4)
-                    pkt->duration = AV_RL32(pkt->data);
-                break;
             case AV_CODEC_ID_ADPCM_EA_R3:
-                if (pkt->size >= 4)
+                if (pkt->size < 4) {
+                    av_log(s, AV_LOG_ERROR, "Packet is too short\n");
+                    av_free_packet(pkt);
+                    return AVERROR_INVALIDDATA;
+                }
+                if (ea->audio_codec == AV_CODEC_ID_ADPCM_EA_R3)
                     pkt->duration = AV_RB32(pkt->data);
+                else
+                    pkt->duration = AV_RL32(pkt->data);
                 break;
             case AV_CODEC_ID_ADPCM_IMA_EA_SEAD:
                 pkt->duration = ret * 2 / ea->num_channels;
@@ -625,6 +651,9 @@ static int ea_read_packet(AVFormatContext *s, AVPacket *pkt)
             goto get_video_packet;
 
         case mTCD_TAG:
+            if (chunk_size < 8)
+                return AVERROR_INVALIDDATA;
+
             avio_skip(pb, 8);               // skip ea DCT header
             chunk_size -= 8;
             goto get_video_packet;
@@ -635,6 +664,9 @@ static int ea_read_packet(AVFormatContext *s, AVPacket *pkt)
             key = AV_PKT_FLAG_KEY;
         case MV0F_TAG:
 get_video_packet:
+            if (!chunk_size)
+                continue;
+
             if (partial_packet) {
                 ret = av_append_packet(pb, pkt, chunk_size);
             } else

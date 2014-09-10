@@ -116,7 +116,7 @@ static int push_samples(AVFilterLink *outlink)
     outsamples->pts = asns->next_out_pts;
 
     if (asns->next_out_pts != AV_NOPTS_VALUE)
-        asns->next_out_pts += nb_out_samples;
+        asns->next_out_pts += av_rescale_q(nb_out_samples, (AVRational){1, outlink->sample_rate}, outlink->time_base);
 
     ret = ff_filter_frame(outlink, outsamples);
     if (ret < 0)
@@ -167,11 +167,11 @@ static int request_frame(AVFilterLink *outlink)
 
 static const AVFilterPad asetnsamples_inputs[] = {
     {
-        .name           = "default",
-        .type           = AVMEDIA_TYPE_AUDIO,
-        .filter_frame   = filter_frame,
+        .name         = "default",
+        .type         = AVMEDIA_TYPE_AUDIO,
+        .filter_frame = filter_frame,
     },
-    {  NULL }
+    { NULL }
 };
 
 static const AVFilterPad asetnsamples_outputs[] = {
@@ -184,13 +184,13 @@ static const AVFilterPad asetnsamples_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_asetnsamples = {
-    .name           = "asetnsamples",
-    .description    = NULL_IF_CONFIG_SMALL("Set the number of samples for each output audio frames."),
-    .priv_size      = sizeof(ASNSContext),
-    .init           = init,
-    .uninit         = uninit,
-    .inputs         = asetnsamples_inputs,
-    .outputs        = asetnsamples_outputs,
-    .priv_class     = &asetnsamples_class,
+AVFilter ff_af_asetnsamples = {
+    .name        = "asetnsamples",
+    .description = NULL_IF_CONFIG_SMALL("Set the number of samples for each output audio frames."),
+    .priv_size   = sizeof(ASNSContext),
+    .priv_class  = &asetnsamples_class,
+    .init        = init,
+    .uninit      = uninit,
+    .inputs      = asetnsamples_inputs,
+    .outputs     = asetnsamples_outputs,
 };

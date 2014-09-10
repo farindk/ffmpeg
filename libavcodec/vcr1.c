@@ -55,8 +55,8 @@ static int vcr1_decode_frame(AVCodecContext *avctx, void *data,
     const uint8_t *bytestream_end = bytestream + avpkt->size;
     int i, x, y, ret;
 
-    if(avpkt->size < 16 + avctx->height + avctx->width*avctx->height*5/8){
-        av_log(avctx, AV_LOG_ERROR, "Insufficient input data.\n");
+    if(avpkt->size < 32 + avctx->height + avctx->width*avctx->height*5/8){
+        av_log(avctx, AV_LOG_ERROR, "Insufficient input data. %d < %d\n", avpkt->size ,  32 + avctx->height + avctx->width*avctx->height*5/8);
         return AVERROR(EINVAL);
     }
 
@@ -123,11 +123,11 @@ static int vcr1_decode_frame(AVCodecContext *avctx, void *data,
 
 AVCodec ff_vcr1_decoder = {
     .name           = "vcr1",
+    .long_name      = NULL_IF_CONFIG_SMALL("ATI VCR1"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_VCR1,
     .priv_data_size = sizeof(VCR1Context),
     .init           = vcr1_decode_init,
     .decode         = vcr1_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("ATI VCR1"),
 };

@@ -24,7 +24,6 @@
  */
 
 #include "libavutil/intreadwrite.h"
-#include "libavcodec/adx.h"
 #include "avformat.h"
 #include "internal.h"
 
@@ -66,7 +65,6 @@ static int adx_read_header(AVFormatContext *s)
 {
     ADXDemuxerContext *c = s->priv_data;
     AVCodecContext *avctx;
-    int ret;
 
     AVStream *st = avformat_new_stream(s, NULL);
     if (!st)
@@ -78,20 +76,14 @@ static int adx_read_header(AVFormatContext *s)
     c->header_size = avio_rb16(s->pb) + 4;
     avio_seek(s->pb, -4, SEEK_CUR);
 
-    avctx->extradata = av_mallocz(c->header_size + FF_INPUT_BUFFER_PADDING_SIZE);
-    if (!avctx->extradata)
+    if (ff_get_extradata(avctx, s->pb, c->header_size) < 0)
         return AVERROR(ENOMEM);
-    if (avio_read(s->pb, avctx->extradata, c->header_size) < c->header_size) {
-        av_freep(&avctx->extradata);
-        return AVERROR(EIO);
-    }
-    avctx->extradata_size = c->header_size;
 
-    ret = avpriv_adx_decode_header(avctx, avctx->extradata,
-                                   avctx->extradata_size, &c->header_size,
-                                   NULL);
-    if (ret)
-        return ret;
+    if (avctx->extradata_size < 12) {
+        av_log(s, AV_LOG_ERROR, "Invalid extradata size.\n");
+        return AVERROR_INVALIDDATA;
+    }
+    avctx->sample_rate = AV_RB32(avctx->extradata + 8);
 
     st->codec->codec_type  = AVMEDIA_TYPE_AUDIO;
     st->codec->codec_id    = s->iformat->raw_codec_id;

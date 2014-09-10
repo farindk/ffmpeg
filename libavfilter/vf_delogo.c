@@ -148,7 +148,7 @@ static void apply_delogo(uint8_t *dst, int dst_linesize,
     }
 }
 
-typedef struct {
+typedef struct DelogoContext {
     const AVClass *class;
     int x, y, w, h, band, show;
 }  DelogoContext;
@@ -164,7 +164,7 @@ static const AVOption delogo_options[]= {
     { "band", "set delogo area band size", OFFSET(band), AV_OPT_TYPE_INT, { .i64 =  4 },  1, INT_MAX, FLAGS },
     { "t",    "set delogo area band size", OFFSET(band), AV_OPT_TYPE_INT, { .i64 =  4 },  1, INT_MAX, FLAGS },
     { "show", "show delogo area",          OFFSET(show), AV_OPT_TYPE_INT, { .i64 =  0 },  0, 1,       FLAGS },
-    { NULL },
+    { NULL }
 };
 
 AVFILTER_DEFINE_CLASS(delogo);
@@ -262,9 +262,9 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
 static const AVFilterPad avfilter_vf_delogo_inputs[] = {
     {
-        .name             = "default",
-        .type             = AVMEDIA_TYPE_VIDEO,
-        .filter_frame     = filter_frame,
+        .name         = "default",
+        .type         = AVMEDIA_TYPE_VIDEO,
+        .filter_frame = filter_frame,
     },
     { NULL }
 };
@@ -277,15 +277,14 @@ static const AVFilterPad avfilter_vf_delogo_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_delogo = {
+AVFilter ff_vf_delogo = {
     .name          = "delogo",
     .description   = NULL_IF_CONFIG_SMALL("Remove logo from input video."),
     .priv_size     = sizeof(DelogoContext),
     .priv_class    = &delogo_class,
     .init          = init,
     .query_formats = query_formats,
-
-    .inputs    = avfilter_vf_delogo_inputs,
-    .outputs   = avfilter_vf_delogo_outputs,
-    .flags     = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
+    .inputs        = avfilter_vf_delogo_inputs,
+    .outputs       = avfilter_vf_delogo_outputs,
+    .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
 };

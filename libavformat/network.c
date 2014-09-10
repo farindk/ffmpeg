@@ -24,7 +24,6 @@
 #include "libavcodec/internal.h"
 #include "libavutil/avutil.h"
 #include "libavutil/mem.h"
-#include "url.h"
 #include "libavutil/time.h"
 
 #if HAVE_THREADS
@@ -42,7 +41,6 @@
 static int openssl_init;
 #if HAVE_THREADS
 #include <openssl/crypto.h>
-#include "libavutil/avutil.h"
 pthread_mutex_t *openssl_mutexes;
 static void openssl_lock(int mode, int type, const char *file, int line)
 {
@@ -78,7 +76,7 @@ void ff_tls_init(void)
 #if HAVE_THREADS
         if (!CRYPTO_get_locking_callback()) {
             int i;
-            openssl_mutexes = av_malloc(sizeof(pthread_mutex_t) * CRYPTO_num_locks());
+            openssl_mutexes = av_malloc_array(sizeof(pthread_mutex_t), CRYPTO_num_locks());
             for (i = 0; i < CRYPTO_num_locks(); i++)
                 pthread_mutex_init(&openssl_mutexes[i], NULL);
             CRYPTO_set_locking_callback(openssl_lock);
@@ -165,8 +163,8 @@ int ff_network_wait_fd_timeout(int fd, int write, int64_t timeout, AVIOInterrupt
             return ret;
         if (timeout > 0) {
             if (!wait_start)
-                wait_start = av_gettime();
-            else if (av_gettime() - wait_start > timeout)
+                wait_start = av_gettime_relative();
+            else if (av_gettime_relative() - wait_start > timeout)
                 return AVERROR(ETIMEDOUT);
         }
     }
@@ -247,8 +245,10 @@ int ff_socket(int af, int type, int proto)
     {
         fd = socket(af, type, proto);
 #if HAVE_FCNTL
-        if (fd != -1)
-            fcntl(fd, F_SETFD, FD_CLOEXEC);
+        if (fd != -1) {
+            if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1)
+                av_log(NULL, AV_LOG_DEBUG, "Failed to set close on exec\n");
+        }
 #endif
     }
     return fd;
@@ -281,7 +281,9 @@ int ff_listen_bind(int fd, const struct sockaddr *addr,
 
     closesocket(fd);
 
-    ff_socket_nonblock(ret, 1);
+    if (ff_socket_nonblock(ret, 1) < 0)
+        av_log(NULL, AV_LOG_DEBUG, "ff_socket_nonblock failed\n");
+
     return ret;
 }
 
@@ -293,7 +295,8 @@ int ff_listen_connect(int fd, const struct sockaddr *addr,
     int ret;
     socklen_t optlen;
 
-    ff_socket_nonblock(fd, 1);
+    if (ff_socket_nonblock(fd, 1) < 0)
+        av_log(NULL, AV_LOG_DEBUG, "ff_socket_nonblock failed\n");
 
     while ((ret = connect(fd, addr, addrlen))) {
         ret = ff_neterrno();

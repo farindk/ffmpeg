@@ -67,35 +67,35 @@ static const uint16_t ifd_tags[] = {
  */
 int ff_tis_ifd(unsigned tag);
 
-/** Reads a short from the bytestream using given endianess. */
+/** Reads a short from the bytestream using given endianness. */
 unsigned ff_tget_short(GetByteContext *gb, int le);
 
-/** Reads a long from the bytestream using given endianess. */
+/** Reads a long from the bytestream using given endianness. */
 unsigned ff_tget_long(GetByteContext *gb, int le);
 
-/** Reads a double from the bytestream using given endianess. */
+/** Reads a double from the bytestream using given endianness. */
 double   ff_tget_double(GetByteContext *gb, int le);
 
-/** Reads a byte from the bytestream using given endianess. */
+/** Reads a byte from the bytestream using given endianness. */
 unsigned ff_tget(GetByteContext *gb, int type, int le);
 
 /** Returns an allocated string containing count
- *  rational values using the given seperator.
+ *  rational values using the given separator.
  */
 char *ff_trationals2str(int *rp, int count, const char *sep);
 
 /** Returns an allocated string containing count
- *  long values using the given seperator.
+ *  long values using the given separator.
  */
 char *ff_tlongs2str(int32_t *lp, int count, const char *sep);
 
 /** Returns an allocated string containing count
- *  double values using the given seperator.
+ *  double values using the given separator.
  */
 char *ff_tdoubles2str(double *dp, int count, const char *sep);
 
 /** Returns an allocated string containing count
- *  short values using the given seperator.
+ *  short values using the given separator.
  */
 char *ff_tshorts2str(int16_t *sp, int count, const char *sep);
 
@@ -121,7 +121,13 @@ int ff_tadd_doubles_metadata(int count, const char *name, const char *sep,
  *  into the metadata dictionary.
  */
 int ff_tadd_shorts_metadata(int count, const char *name, const char *sep,
-                            GetByteContext *gb, int le, AVDictionary **metadata);
+                            GetByteContext *gb, int le, int is_signed, AVDictionary **metadata);
+
+/** Adds count bytes converted to a string
+ *  into the metadata dictionary.
+ */
+int ff_tadd_bytes_metadata(int count, const char *name, const char *sep,
+                           GetByteContext *gb, int le, int is_signed, AVDictionary **metadata);
 
 /** Adds a string of count characters
  *  into the metadata dictionary.
@@ -130,7 +136,7 @@ int ff_tadd_string_metadata(int count, const char *name,
                             GetByteContext *gb, int le, AVDictionary **metadata);
 
 /** Decodes a TIFF header from the input bytestream
- *  and sets the endianess in *le and the offset to
+ *  and sets the endianness in *le and the offset to
  *  the first IFD in *ifd_offset accordingly.
  */
 int ff_tdecode_header(GetByteContext *gb, int *le, int *ifd_offset);

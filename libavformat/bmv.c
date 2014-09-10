@@ -71,8 +71,7 @@ static int bmv_read_header(AVFormatContext *s)
 static int bmv_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
     BMVContext *c = s->priv_data;
-    int type;
-    void *tmp;
+    int type, err;
 
     while (c->get_next) {
         if (s->pb->eof_reached)
@@ -85,10 +84,8 @@ static int bmv_read_packet(AVFormatContext *s, AVPacket *pkt)
         c->size = avio_rl24(s->pb);
         if (!c->size)
             return AVERROR_INVALIDDATA;
-        tmp = av_realloc(c->packet, c->size + 1);
-        if (!tmp)
-            return AVERROR(ENOMEM);
-        c->packet = tmp;
+        if ((err = av_reallocp(&c->packet, c->size + 1)) < 0)
+            return err;
         c->packet[0] = type;
         if (avio_read(s->pb, c->packet + 1, c->size) != c->size)
             return AVERROR(EIO);

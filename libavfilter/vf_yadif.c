@@ -2,19 +2,19 @@
  * Copyright (C) 2006-2011 Michael Niedermayer <michaelni@gmx.at>
  *               2010      James Darnley <james.darnley@gmail.com>
  *
- * FFmpeg is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * FFmpeg is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * FFmpeg is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with FFmpeg; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with FFmpeg; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #include "libavutil/avassert.h"
@@ -325,8 +325,9 @@ static int filter_frame(AVFilterLink *link, AVFrame *frame)
     yadif->cur  = yadif->next;
     yadif->next = frame;
 
-    if (!yadif->cur)
-        return 0;
+    if (!yadif->cur &&
+        !(yadif->cur = av_frame_clone(yadif->next)))
+        return AVERROR(ENOMEM);
 
     if (checkstride(yadif, yadif->next, yadif->cur)) {
         av_log(ctx, AV_LOG_VERBOSE, "Reallocating frame due to differing stride\n");
@@ -352,9 +353,8 @@ static int filter_frame(AVFilterLink *link, AVFrame *frame)
         return ff_filter_frame(ctx->outputs[0], yadif->out);
     }
 
-    if (!yadif->prev &&
-        !(yadif->prev = av_frame_clone(yadif->cur)))
-        return AVERROR(ENOMEM);
+    if (!yadif->prev)
+        return 0;
 
     yadif->out = ff_get_video_buffer(ctx->outputs[0], link->w, link->h);
     if (!yadif->out)
@@ -400,7 +400,7 @@ static int request_frame(AVFilterLink *link)
         } else if (ret < 0) {
             return ret;
         }
-    } while (!yadif->cur);
+    } while (!yadif->prev);
 
     return 0;
 }
@@ -426,24 +426,24 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_YUVJ420P,
         AV_PIX_FMT_YUVJ422P,
         AV_PIX_FMT_YUVJ444P,
-        AV_NE( AV_PIX_FMT_GRAY16BE, AV_PIX_FMT_GRAY16LE ),
+        AV_PIX_FMT_GRAY16,
         AV_PIX_FMT_YUV440P,
         AV_PIX_FMT_YUVJ440P,
-        AV_NE( AV_PIX_FMT_YUV420P9BE,  AV_PIX_FMT_YUV420P9LE ),
-        AV_NE( AV_PIX_FMT_YUV422P9BE,  AV_PIX_FMT_YUV422P9LE ),
-        AV_NE( AV_PIX_FMT_YUV444P9BE,  AV_PIX_FMT_YUV444P9LE ),
-        AV_NE( AV_PIX_FMT_YUV420P10BE, AV_PIX_FMT_YUV420P10LE ),
-        AV_NE( AV_PIX_FMT_YUV422P10BE, AV_PIX_FMT_YUV422P10LE ),
-        AV_NE( AV_PIX_FMT_YUV444P10BE, AV_PIX_FMT_YUV444P10LE ),
-        AV_NE( AV_PIX_FMT_YUV420P12BE, AV_PIX_FMT_YUV420P12LE ),
-        AV_NE( AV_PIX_FMT_YUV422P12BE, AV_PIX_FMT_YUV422P12LE ),
-        AV_NE( AV_PIX_FMT_YUV444P12BE, AV_PIX_FMT_YUV444P12LE ),
-        AV_NE( AV_PIX_FMT_YUV420P14BE, AV_PIX_FMT_YUV420P14LE ),
-        AV_NE( AV_PIX_FMT_YUV422P14BE, AV_PIX_FMT_YUV422P14LE ),
-        AV_NE( AV_PIX_FMT_YUV444P14BE, AV_PIX_FMT_YUV444P14LE ),
-        AV_NE( AV_PIX_FMT_YUV420P16BE, AV_PIX_FMT_YUV420P16LE ),
-        AV_NE( AV_PIX_FMT_YUV422P16BE, AV_PIX_FMT_YUV422P16LE ),
-        AV_NE( AV_PIX_FMT_YUV444P16BE, AV_PIX_FMT_YUV444P16LE ),
+        AV_PIX_FMT_YUV420P9,
+        AV_PIX_FMT_YUV422P9,
+        AV_PIX_FMT_YUV444P9,
+        AV_PIX_FMT_YUV420P10,
+        AV_PIX_FMT_YUV422P10,
+        AV_PIX_FMT_YUV444P10,
+        AV_PIX_FMT_YUV420P12,
+        AV_PIX_FMT_YUV422P12,
+        AV_PIX_FMT_YUV444P12,
+        AV_PIX_FMT_YUV420P14,
+        AV_PIX_FMT_YUV422P14,
+        AV_PIX_FMT_YUV444P14,
+        AV_PIX_FMT_YUV420P16,
+        AV_PIX_FMT_YUV422P16,
+        AV_PIX_FMT_YUV444P16,
         AV_PIX_FMT_YUVA420P,
         AV_PIX_FMT_YUVA422P,
         AV_PIX_FMT_YUVA444P,
@@ -512,16 +512,16 @@ static const AVOption yadif_options[] = {
     CONST("all",        "deinterlace all frames",                       YADIF_DEINT_ALL,         "deint"),
     CONST("interlaced", "only deinterlace frames marked as interlaced", YADIF_DEINT_INTERLACED,  "deint"),
 
-    {NULL},
+    { NULL }
 };
 
 AVFILTER_DEFINE_CLASS(yadif);
 
 static const AVFilterPad avfilter_vf_yadif_inputs[] = {
     {
-        .name             = "default",
-        .type             = AVMEDIA_TYPE_VIDEO,
-        .filter_frame     = filter_frame,
+        .name          = "default",
+        .type          = AVMEDIA_TYPE_VIDEO,
+        .filter_frame  = filter_frame,
     },
     { NULL }
 };
@@ -536,16 +536,14 @@ static const AVFilterPad avfilter_vf_yadif_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_yadif = {
+AVFilter ff_vf_yadif = {
     .name          = "yadif",
     .description   = NULL_IF_CONFIG_SMALL("Deinterlace the input image."),
-
     .priv_size     = sizeof(YADIFContext),
     .priv_class    = &yadif_class,
     .uninit        = uninit,
     .query_formats = query_formats,
-
-    .inputs    = avfilter_vf_yadif_inputs,
-    .outputs   = avfilter_vf_yadif_outputs,
-    .flags     = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL | AVFILTER_FLAG_SLICE_THREADS,
+    .inputs        = avfilter_vf_yadif_inputs,
+    .outputs       = avfilter_vf_yadif_outputs,
+    .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL | AVFILTER_FLAG_SLICE_THREADS,
 };

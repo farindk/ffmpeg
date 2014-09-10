@@ -113,9 +113,7 @@ static int redspark_read_header(AVFormatContext *s)
         goto fail;
     }
 
-    codec->extradata_size = 32 * codec->channels;
-    codec->extradata = av_malloc(codec->extradata_size);
-    if (!codec->extradata) {
+    if (ff_alloc_extradata(codec, 32 * codec->channels)) {
         ret = AVERROR(ENOMEM);
         goto fail;
     }
@@ -145,7 +143,7 @@ static int redspark_read_packet(AVFormatContext *s, AVPacket *pkt)
     uint32_t size = 8 * codec->channels;
     int ret;
 
-    if (url_feof(s->pb) || redspark->samples_count == s->streams[0]->duration)
+    if (avio_feof(s->pb) || redspark->samples_count == s->streams[0]->duration)
         return AVERROR_EOF;
 
     ret = av_get_packet(s->pb, pkt, size);
