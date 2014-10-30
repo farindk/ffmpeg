@@ -23,6 +23,8 @@ The defaults (h=8, range=3, temporal=2) is a good starting point for the
 restoration of very noisy video (old VHS tapes). You may also try 10/5/3
 for really noisy inputs or 6/3/1 for good quality inputs.
 
+The NLMeans filter is under GPL, so be sure to configure with `--enable-gpl`.
+
 
 fieldshift
 ----------
