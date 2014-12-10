@@ -451,7 +451,7 @@ function fft_b15_calc_neon
         ret
 endfunc
 
-const   fft_tab_neon
+const   fft_tab_neon, relocate=1
         .quad fft15_neon
         .quad fft30_neon
         .quad fft60_neon

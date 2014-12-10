@@ -86,8 +86,10 @@ static void get_str8(AVIOContext *pb, char *buf, int buf_size)
 
 static int rm_read_extradata(AVIOContext *pb, AVCodecContext *avctx, unsigned size)
 {
-    if (size >= 1<<24)
+    if (size >= 1<<24) {
+        av_log(avctx, AV_LOG_ERROR, "extradata size %u too large\n", size);
         return -1;
+    }
     if (ff_get_extradata(avctx, pb, size) < 0)
         return AVERROR(ENOMEM);
     return 0;
@@ -303,18 +305,36 @@ static int rm_read_audio_stream_info(AVFormatContext *s, AVIOContext *pb,
     return 0;
 }
 
-int
-ff_rm_read_mdpr_codecdata (AVFormatContext *s, AVIOContext *pb,
-                           AVStream *st, RMStream *rst, int codec_data_size, const uint8_t *mime)
+int ff_rm_read_mdpr_codecdata(AVFormatContext *s, AVIOContext *pb,
+                              AVStream *st, RMStream *rst,
+                              unsigned int codec_data_size, const uint8_t *mime)
 {
     unsigned int v;
     int size;
     int64_t codec_pos;
     int ret;
 
+    if (codec_data_size > INT_MAX)
+        return AVERROR_INVALIDDATA;
+
     avpriv_set_pts_info(st, 64, 1, 1000);
     codec_pos = avio_tell(pb);
     v = avio_rb32(pb);
+
+    if (v == MKBETAG('M', 'L', 'T', 'I')) {
+        int number_of_streams = avio_rb16(pb);
+        int number_of_mdpr;
+        int i;
+        for (i = 0; i<number_of_streams; i++)
+            avio_rb16(pb);
+        number_of_mdpr = avio_rb16(pb);
+        if (number_of_mdpr != 1) {
+            avpriv_request_sample(s, "MLTI with multiple MDPR");
+        }
+        avio_rb32(pb);
+        v = avio_rb32(pb);
+    }
+
     if (v == MKTAG(0xfd, 'a', 'r', '.')) {
         /* ra type header */
         if (rm_read_audio_stream_info(s, pb, st, rst, 0))
@@ -394,7 +414,11 @@ ff_rm_read_mdpr_codecdata (AVFormatContext *s, AVIOContext *pb,
 skip:
     /* skip codec info */
     size = avio_tell(pb) - codec_pos;
-    avio_skip(pb, codec_data_size - size);
+    if (codec_data_size >= size) {
+        avio_skip(pb, codec_data_size - size);
+    } else {
+        av_log(s, AV_LOG_WARNING, "codec_data_size %u < size %d\n", codec_data_size, size);
+    }
 
     return 0;
 }
@@ -595,7 +619,7 @@ static int get_num(AVIOContext *pb, int *len)
 /* multiple of 20 bytes for ra144 (ugly) */
 #define RAW_PACKET_SIZE 1000
 
-static int sync(AVFormatContext *s, int64_t *timestamp, int *flags, int *stream_index, int64_t *pos){
+static int rm_sync(AVFormatContext *s, int64_t *timestamp, int *flags, int *stream_index, int64_t *pos){
     RMDemuxContext *rm = s->priv_data;
     AVIOContext *pb = s->pb;
     AVStream *st;
@@ -903,8 +927,9 @@ ff_rm_retrieve_cache (AVFormatContext *s, AVIOContext *pb,
         ast->deint_id == DEINT_ID_VBRS)
         av_get_packet(pb, pkt, ast->sub_packet_lengths[ast->sub_packet_cnt - rm->audio_pkt_cnt]);
     else {
-        if(av_new_packet(pkt, st->codec->block_align) < 0)
-            return AVERROR(ENOMEM);
+        int ret = av_new_packet(pkt, st->codec->block_align);
+        if (ret < 0)
+            return ret;
         memcpy(pkt->data, ast->pkt.data + st->codec->block_align * //FIXME avoid this
                (ast->sub_packet_h * ast->audio_framesize / st->codec->block_align - rm->audio_pkt_cnt),
                st->codec->block_align);
@@ -948,12 +973,12 @@ static int rm_read_packet(AVFormatContext *s, AVPacket *pkt)
                 flags = (seq++ == 1) ? 2 : 0;
                 pos = avio_tell(s->pb);
             } else {
-                len=sync(s, &timestamp, &flags, &i, &pos);
+                len = rm_sync(s, &timestamp, &flags, &i, &pos);
                 if (len > 0)
                     st = s->streams[i];
             }
 
-            if(len<0 || avio_feof(s->pb))
+            if (len <= 0 || avio_feof(s->pb))
                 return AVERROR(EIO);
 
             res = ff_rm_parse_packet (s, s->pb, st, st->priv_data, len, pkt,
@@ -1019,7 +1044,7 @@ static int64_t rm_read_dts(AVFormatContext *s, int stream_index,
         int seq=1;
         AVStream *st;
 
-        len=sync(s, &dts, &flags, &stream_index2, &pos);
+        len = rm_sync(s, &dts, &flags, &stream_index2, &pos);
         if(len<0)
             return AV_NOPTS_VALUE;
 

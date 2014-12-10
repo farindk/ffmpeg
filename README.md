@@ -1,10 +1,10 @@
 Personal FFMPEG fork
 ====================
 
-This fork contains the following extensions to ffmpeg (each in its own branch):  
-1. **nlmeans** - Non-Local Means noise reduction filter.  
-2. **fieldshift** - Horizontally shift fields of interlaced images against each other (useful e.g. for VHS video recovery).  
-3. **libde265** - Integration of libde265 HEVC video decoder.  
+This fork contains the following extensions to ffmpeg (each in its own branch):
+1. **nlmeans** - Non-Local Means noise reduction filter.
+2. **fieldshift** - Horizontally shift fields of interlaced images against each other (useful e.g. for VHS video recovery).
+3. **libde265** - Integration of libde265 HEVC video decoder.
 
 
 

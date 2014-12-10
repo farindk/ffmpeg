@@ -1,61 +1,99 @@
- ┌───────────────────────────────────────────┐
- │ RELEASE NOTES for FFmpeg <next> "FIXME"   │
- └───────────────────────────────────────────┘
+ ┌────────────────────────────────────────┐
+ │ RELEASE NOTES for FFmpeg 2.5 "Bohr"    │
+ └────────────────────────────────────────┘
 
-   The FFmpeg Project proudly presents FFmpeg <next> "FIXME", ...
-   FFmpeg 2.4 is API-, but not ABI-compatible with the previous major release.
-   This means that the code using our libraries needs to be rebuilt, but no
-   source changes should be required.
+   The FFmpeg Project proudly presents FFmpeg 2.5 "Bohr", just 2.5 months
+   after the release of 2.4. Since this wasn't a long time ago, the Changelog
+   is a bit short this time.
+
+   As usual, if you have any question on this release or any FFmpeg related
+   topic, feel free to join us on the #ffmpeg IRC channel (on
+   irc.freenode.net).
 
    ┌────────────────────────────┐
-   │ *  API Information         │
+   │ 🔨  API Information         │
    └────────────────────────────┘
 
-     FFmpeg <next> includes the following library versions:
+     FFmpeg 2.5 includes the following library versions:
 
-       • libavutil      xx.yy.1zz
-       • libavcodec     xx.yy.1zz
-       • libavformat    xx.yy.1zz
-       • libavdevice    xx.yy.1zz
-       • libavfilter    xx.yy.1zz
-       • libswscale     xx.yy.1zz
-       • libswresample  xx.yy.1zz
-       • libpostproc    xx.yy.1zz
+       • libavutil      54.15.100
+       • libavcodec     56.13.100
+       • libavformat    56.15.102
+       • libavdevice    56. 3.100
+       • libavfilter     5. 2.103
+       • libswscale      3. 1.101
+       • libswresample   1. 1.100
+       • libpostproc    53. 3.100
 
-     Please refer to the doc/APIChanges file for more information.
+     Important API changes since 2.4:
+
+       • avpriv_dv_frame_profile2() has been deprecated
+
+
+     Please refer to the doc/APIchanges file for more information.
 
  ┌────────────────────────────┐
  │ ★  List of New Features    │
  └────────────────────────────┘
 
    ┌────────────────────────────┐
+   │ ffprobe                    │
+   └────────────────────────────┘
+
+    • -show_pixel_formats option
+
+   ┌────────────────────────────┐
+   │ ffserver                   │
+   └────────────────────────────┘
+
+    • codec private options support
+
+   ┌────────────────────────────┐
+   │ libavcodec                 │
+   └────────────────────────────┘
+
+    • STL subtitle decoder
+    • libutvideo YUV 4:2:2 10bit support
+    • animated WebP decoding support
+    • zygoaudio decoding support
+
+   ┌────────────────────────────┐
+   │ libavdevice                │
+   └────────────────────────────┘
+
+    • XCB-based screen-grabber
+    • AVFoundation screen capturing support
+
+   ┌────────────────────────────┐
    │ libavformat                │
    └────────────────────────────┘
 
-    • Icecast protocol
-    • API for live metadata updates through event flags.
+    • HEVC/H.265 RTP payload format (draft v6) packetizer
+    • SUP/PGS subtitle demuxer
+    • STL subtitle demuxer
+    • UDP-Lite support (RFC 3828)
+    • creating DASH compatible fragmented MP4, MPEG-DASH segmenting muxer
+    • WebP muxer
+    • APNG demuxer
 
    ┌────────────────────────────┐
    │ libavfilter                │
    └────────────────────────────┘
 
-    • ported lenscorrection filter from frei0r filter
-    • large optimizations in dctdnoiz to make it usable
-    • added codecview filter to visualize information exported by some codecs
-    • added silenceremove filter
+    • xBR scaling filter
 
    ┌────────────────────────────┐
    │ libavutil                  │
    └────────────────────────────┘
 
-    • added clip() function in eval
+    • CAST128 symmetric block cipher, ECB mode
+
+   ┌────────────────────────────┐
+   │ libpostproc                │
+   └────────────────────────────┘
+
+    • visualization support
 
  ┌────────────────────────────┐
  │ ⚠  Behaviour changes       │
  └────────────────────────────┘
-
-  • dctdnoiz filter now uses a block size of 8x8 instead of 16x16 by default
-  • -vismv option is deprecated in favor of the codecview filter
-  • libmodplug is now detected through pkg-config
-  • HTML documentation generation through texi2html is deprecated in
-    favor of makeinfo/texi2any

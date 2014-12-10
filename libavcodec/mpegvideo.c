@@ -361,7 +361,8 @@ static void mpeg_er_decode_mb(void *opaque, int ref, int mv_dir, int mv_type,
     s->dest[2] = s->current_picture.f->data[2] + (s->mb_y * (16 >> s->chroma_y_shift) * s->uvlinesize) + s->mb_x * (16 >> s->chroma_x_shift);
 
     if (ref)
-        av_log(s->avctx, AV_LOG_DEBUG, "Interlaced error concealment is not fully implemented\n");
+        av_log(s->avctx, AV_LOG_DEBUG,
+               "Interlaced error concealment is not fully implemented\n");
     ff_mpv_decode_mb(s, s->block);
 }
 
@@ -460,10 +461,10 @@ static int frame_size_alloc(MpegEncContext *s, int linesize)
     // at uvlinesize. It supports only YUV420 so 24x24 is enough
     // linesize * interlaced * MBsize
     // we also use this buffer for encoding in encode_mb_internal() needig an additional 32 lines
-    FF_ALLOCZ_OR_GOTO(s->avctx, s->edge_emu_buffer, alloc_size * 4 * 68,
+    FF_ALLOCZ_ARRAY_OR_GOTO(s->avctx, s->edge_emu_buffer, alloc_size, 4 * 68,
                       fail);
 
-    FF_ALLOCZ_OR_GOTO(s->avctx, s->me.scratchpad, alloc_size * 4 * 16 * 2,
+    FF_ALLOCZ_ARRAY_OR_GOTO(s->avctx, s->me.scratchpad, alloc_size, 4 * 16 * 2,
                       fail)
     s->me.temp         = s->me.scratchpad;
     s->rd_scratchpad   = s->me.scratchpad;
@@ -956,6 +957,7 @@ int ff_mpeg_update_thread_context(AVCodecContext *dst,
     // FIXME can parameters change on I-frames?
     // in that case dst may need a reinit
     if (!s->context_initialized) {
+        int err;
         memcpy(s, s1, sizeof(MpegEncContext));
 
         s->avctx                 = dst;
@@ -966,10 +968,10 @@ int ff_mpeg_update_thread_context(AVCodecContext *dst,
 //             s->picture_range_start  += MAX_PICTURE_COUNT;
 //             s->picture_range_end    += MAX_PICTURE_COUNT;
             ff_mpv_idct_init(s);
-            if((ret = ff_mpv_common_init(s)) < 0){
+            if((err = ff_mpv_common_init(s)) < 0){
                 memset(s, 0, sizeof(MpegEncContext));
                 s->avctx = dst;
-                return ret;
+                return err;
             }
         }
     }
